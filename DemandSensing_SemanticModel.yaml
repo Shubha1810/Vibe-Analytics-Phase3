@@ -1,0 +1,2422 @@
+# =============================================================================
+# Vibe Analytics :: Demand Sensing :: Cortex Analyst Semantic Model
+# Retailer: Brightway Retail
+# Database: DEMANDSENSING_AI
+# Schema:   DEMANDSENSING_SCHEMA
+# Version:  2.0 — Phase 3 POC (rebuilt from Data Dictionary)
+# =============================================================================
+name: DemandSensing_AI
+description: >
+  Enterprise demand sensing semantic model for Brightway Retail.
+  Covers daily SKU×Store demand signals, forecast accuracy, promotional analytics,
+  supply-chain operations, and AI-driven prescriptive recommendations across
+  450 SKUs, 41 stores, 7 regions, and 3 departments (Fresh & Grocery,
+  Consumer Electronics, Seasonal & Home). Supports the Vibe Analytics
+  Agentic AI solution for demand planners, category managers, and supply-chain leads.
+  Data spans 2023-07-17 to 2026-07-13 (~1,093 days) on an NRF 4-4-5 fiscal calendar.
+
+# =============================================================================
+# CUSTOM INSTRUCTIONS — Domain guidance for Cortex Analyst SQL generation
+# =============================================================================
+custom_instructions: >
+  DEMAND SENSING DOMAIN RULES:
+
+  1. FISCAL CALENDAR: Always use fiscal_year, fiscal_quarter, fiscal_month, fiscal_week for time grouping.
+     Never use YEAR(transaction_date) or QUARTER(transaction_date) — the NRF 4-4-5 calendar does not align
+     with calendar months/quarters.
+
+  2. BASELINE vs SCENARIO: Rows with scenario_id IS NULL are baseline (steady-state). Rows with
+     scenario_id IS NOT NULL are scenario overlays. Always filter scenario_id IS NULL for standard KPIs
+     unless the user explicitly asks about a scenario.
+
+  3. DEMAND DRIVER IDENTITY: demand_deviation_pct = driver_weather_pp + driver_promo_pp +
+     driver_competitor_pp + driver_digital_pp + driver_residual_pp. These sum to the total deviation.
+
+  4. CENSORED vs UNCENSORED DEMAND: units_sold is censored by stockouts (capped by availability).
+     actual_demand_units is the true uncensored demand. Use actual_demand_units for demand sensing;
+     use units_sold for revenue/P&L calculations.
+
+  5. LOST SALES: lost_sales_units_est = MAX(0, actual_demand_units - units_sold). Only > 0 when
+     stockout_flag = TRUE. Lost revenue = lost_sales_units_est × regular_price.
+
+  6. FORECAST ACCURACY: MAPE = AVG(abs_pct_error) from FACT_FORECAST where forecast_type = 'actuals_vs_forecast'.
+     Bias = AVG(forecast_bias_pct). Filter out forward_projection rows for accuracy KPIs.
+
+  7. MACRO JOIN: Join DIM_EXTERNAL_MACRO to FACT_DEMAND_DAILY via:
+     DIM_EXTERNAL_MACRO.region = FACT_DEMAND_DAILY.region AND
+     DIM_EXTERNAL_MACRO.month_start = DATE_TRUNC('month', FACT_DEMAND_DAILY.transaction_date).
+
+  8. CHANNEL STRATIFICATION: Always stratify by channel (Brick & Mortar vs eCommerce) when computing
+     store-level KPIs to avoid mixing fundamentally different demand patterns.
+
+  9. GUARDRAIL COMPLIANCE: DIM_GUARDRAILS.scope_department matches FACT_DEMAND_DAILY.department.
+     Use active_flag = TRUE for current rules. Gross margin floor = 18%, max discount = 40%.
+
+  10. PROMO ANALYTICS: Net category lift = promo_lift_pct - cannibalization_pct. Vendor-funded
+      promos have higher effective ROI. post_promo_dip_flag = TRUE means avoid consecutive promos
+      within 4 weeks.
+
+  11. SUPPLY CHAIN: OTIF target >= 85%. Fill rate target >= 95%. lead_time_variance_days > 0 means
+      late delivery. Join FACT_SUPPLY_CHAIN to DIM_STORE via dc_id for DC-to-store impact analysis.
+
+  12. RECOMMENDATIONS: Filter requires_approval_flag = TRUE for human review queue.
+      confidence_score < 0.6 triggers suppression per guardrail GR-008.
+
+# =============================================================================
+# TABLES
+# =============================================================================
+tables:
+
+  # ---------------------------------------------------------------------------
+  # DIM_PRODUCT — Product Master (450 SKUs)
+  # ---------------------------------------------------------------------------
+  - name: DIM_PRODUCT
+    description: >
+      Product master dimension: 450 SKUs across 3 departments (Fresh & Grocery,
+      Consumer Electronics, Seasonal & Home), 14 category groups, 42 sub-categories,
+      31 brands. Includes 4-level category hierarchy, lifecycle stage, perishability,
+      and substitution mapping.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: DIM_PRODUCT
+    primary_key:
+      columns:
+        - SKU_ID
+
+    dimensions:
+      - name: SKU_ID
+        expr: SKU_ID
+        data_type: VARCHAR
+        unique: true
+        description: Unique stock-keeping unit identifier. Primary join key to all fact tables. Do not use product_name for joins.
+        synonyms:
+          - product id
+          - item id
+          - sku
+          - product code
+        sample_values:
+          - SKU-000001
+          - SKU-000312
+          - SKU-000450
+
+      - name: PRODUCT_NAME
+        expr: PRODUCT_NAME
+        data_type: VARCHAR
+        description: Marketing display name for the product. Use as human-readable label, not for joins.
+        synonyms:
+          - product
+          - item name
+          - sku name
+
+      - name: UPC_CODE
+        expr: UPC_CODE
+        data_type: VARCHAR
+        description: 12-digit Universal Product Code barcode. Alternate key for POS reconciliation.
+        synonyms:
+          - barcode
+          - upc
+
+      - name: BRAND
+        expr: BRAND
+        data_type: VARCHAR
+        description: Brand name (31 distinct). Includes national brands and Brightway private-label brands.
+        synonyms:
+          - brand name
+          - manufacturer
+        sample_values:
+          - BrightFresh Organics
+          - TechEdge
+          - HomeStyle Seasons
+
+      - name: CATEGORY_L1
+        expr: CATEGORY_L1
+        data_type: VARCHAR
+        description: Top-level department. Broadest grouping for P&L and inventory planning. Maps to persona_owner roles.
+        synonyms:
+          - department
+          - division
+          - category level 1
+        sample_values:
+          - Fresh & Grocery
+          - Consumer Electronics
+          - Seasonal & Home
+
+      - name: CATEGORY_L2
+        expr: CATEGORY_L2
+        data_type: VARCHAR
+        description: Mid-level category group (14 distinct). Used for buyer-level planning and promo event management.
+        synonyms:
+          - category group
+          - sub-department
+          - category level 2
+
+      - name: CATEGORY_L3
+        expr: CATEGORY_L3
+        data_type: VARCHAR
+        description: >
+          Operational planning segment (42 distinct). Primary grain for demand scenarios, pricing events,
+          and replenishment triggers. All 5 demand scenarios are defined at this level.
+        synonyms:
+          - sub-category
+          - segment
+          - category level 3
+          - subcategory
+        sample_values:
+          - Berries
+          - Avocados
+          - Artisan Breads
+          - Outdoor Bluetooth Speakers
+          - Patio Furniture Sets
+
+      - name: CATEGORY_L4
+        expr: CATEGORY_L4
+        data_type: VARCHAR
+        description: "Finest category level (447 values, nearly 1:1 with SKU). Used for planogram management."
+        synonyms:
+          - detailed category
+          - category level 4
+
+      - name: PRIVATE_LABEL_FLAG
+        expr: PRIVATE_LABEL_FLAG
+        data_type: BOOLEAN
+        description: TRUE if Brightway private-label / store-brand product. Higher margin, lower brand pull.
+        synonyms:
+          - store brand
+          - own brand
+          - private label
+
+      - name: UNIT_OF_MEASURE
+        expr: UNIT_OF_MEASURE
+        data_type: VARCHAR
+        description: Base selling unit (each, lb, oz). Critical for price interpretation.
+        synonyms:
+          - uom
+          - measure
+
+      - name: PERISHABLE_FLAG
+        expr: PERISHABLE_FLAG
+        data_type: BOOLEAN
+        description: TRUE if perishable (shelf_life_days > 0). Primary filter for fresh-produce demand scenarios.
+        synonyms:
+          - is perishable
+          - fresh item
+
+      - name: PRODUCT_LIFECYCLE_STAGE
+        expr: PRODUCT_LIFECYCLE_STAGE
+        data_type: VARCHAR
+        description: Lifecycle stage. Launch SKUs have higher forecast error; Decline/EOL SKUs drive markdown glidepaths.
+        synonyms:
+          - lifecycle
+          - product stage
+          - plc stage
+        sample_values:
+          - Introduction
+          - Growth
+          - Maturity
+          - Decline
+          - EOL
+
+    time_dimensions:
+      - name: FIRST_SALE_DATE
+        expr: FIRST_SALE_DATE
+        data_type: DATE
+        description: Date SKU first became available for sale. Use for time-since-launch calculations.
+        synonyms:
+          - launch date
+          - introduction date
+
+      - name: DISCONTINUATION_DATE
+        expr: DISCONTINUATION_DATE
+        data_type: DATE
+        description: Date SKU was discontinued (NULL = active). Use IS NULL for active-SKU metrics.
+        synonyms:
+          - end of life date
+          - eol date
+
+    facts:
+      - name: PACK_SIZE
+        expr: PACK_SIZE
+        data_type: NUMBER
+        description: Consumer units per selling pack. Use for unit-to-case conversion calculations.
+        synonyms:
+          - pack count
+          - multipack size
+
+      - name: WEIGHT_KG
+        expr: WEIGHT_KG
+        data_type: FLOAT
+        description: Unit weight in kilograms. Used for logistics cost modelling.
+        synonyms:
+          - weight
+          - product weight
+
+      - name: SHELF_LIFE_DAYS
+        expr: SHELF_LIFE_DAYS
+        data_type: NUMBER
+        description: Shelf life in days (0 = non-perishable). Low shelf_life + high days_of_supply = overstock/waste risk.
+        synonyms:
+          - shelf life
+          - expiry window
+
+  # ---------------------------------------------------------------------------
+  # DIM_STORE — Store Master (41 nodes)
+  # ---------------------------------------------------------------------------
+  - name: DIM_STORE
+    description: >
+      Store dimension: 40 brick-and-mortar stores + 1 eCommerce fulfilment centre
+      across 6 US regions plus National (eComm). Includes format, tier, geography,
+      DC assignment, and traffic data.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: DIM_STORE
+    primary_key:
+      columns:
+        - STORE_ID
+
+    dimensions:
+      - name: STORE_ID
+        expr: STORE_ID
+        data_type: VARCHAR
+        unique: true
+        description: Unique store/node identifier. Primary join key to FACT_DEMAND_DAILY and FACT_PROMOTIONS.
+        synonyms:
+          - store
+          - location id
+          - node id
+        sample_values:
+          - STR-0001
+          - STR-0041
+
+      - name: STORE_NAME
+        expr: STORE_NAME
+        data_type: VARCHAR
+        description: Store display name. Label attribute — do not use for joins.
+        synonyms:
+          - store name
+          - location name
+
+      - name: STORE_FORMAT
+        expr: STORE_FORMAT
+        data_type: VARCHAR
+        description: Physical format. Determines assortment breadth, selling area, and footfall. Always segment by format when comparing per-store metrics.
+        synonyms:
+          - format
+          - store type
+        sample_values:
+          - Supercenter
+          - Neighborhood Market
+          - Express
+          - eCommerce FC
+
+      - name: STORE_TIER
+        expr: STORE_TIER
+        data_type: VARCHAR
+        description: Performance/volume tier. Tier 1 = flagship high-volume stores for exec dashboards.
+        synonyms:
+          - tier
+          - volume tier
+        sample_values:
+          - Tier 1
+          - Tier 2
+          - Tier 3
+
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+        description: Sales region. Join to DIM_EXTERNAL_MACRO for macro signals. Critical for weather and competitor signal scoping.
+        synonyms:
+          - sales region
+          - geographic region
+          - area
+        sample_values:
+          - Northeast
+          - Southeast
+          - Midwest
+          - West Coast
+          - South-Central
+          - Mid-Atlantic
+          - National
+
+      - name: STATE
+        expr: STATE
+        data_type: VARCHAR
+        description: US state abbreviation. Use with latitude/longitude for map visualisations.
+        synonyms:
+          - us state
+
+      - name: CITY
+        expr: CITY
+        data_type: VARCHAR
+        description: City of store. Used for local event tagging and hyper-local demand analysis.
+        synonyms:
+          - store city
+
+      - name: ZIP_CODE
+        expr: ZIP_CODE
+        data_type: VARCHAR
+        description: 5-digit postal code. Primary key for weather signal assignment in the demand engine.
+        synonyms:
+          - zip
+          - postal code
+
+      - name: CHANNEL
+        expr: CHANNEL
+        data_type: VARCHAR
+        description: Sales channel. Always stratify channel in demand KPIs to prevent B&M and eComm mixing.
+        synonyms:
+          - sales channel
+        sample_values:
+          - Brick & Mortar
+          - eCommerce
+
+      - name: STORE_CLUSTER_ID
+        expr: STORE_CLUSTER_ID
+        data_type: VARCHAR
+        description: K-Means cluster assignment for peer-group averages and cluster-level KPI comparisons.
+        synonyms:
+          - cluster
+          - peer group
+
+      - name: DC_ID
+        expr: DC_ID
+        data_type: VARCHAR
+        description: Distribution centre serving this store. Join to FACT_SUPPLY_CHAIN.dc_id for supply chain impact analysis.
+        synonyms:
+          - distribution center
+          - warehouse
+          - dc
+
+    time_dimensions:
+      - name: STORE_OPEN_DATE
+        expr: STORE_OPEN_DATE
+        data_type: DATE
+        description: Date store opened. Derive store_age_weeks for comp-store eligibility filters.
+        synonyms:
+          - open date
+          - opening date
+
+    facts:
+      - name: LATITUDE
+        expr: LATITUDE
+        data_type: FLOAT
+        description: Store latitude. Use for geo-spatial analysis and map plots.
+
+      - name: LONGITUDE
+        expr: LONGITUDE
+        data_type: FLOAT
+        description: Store longitude. Pair with latitude for map-based analytics.
+
+      - name: TOTAL_SQFT
+        expr: TOTAL_SQFT
+        data_type: NUMBER
+        description: Total gross leasable area in square feet.
+        synonyms:
+          - square footage
+          - store size
+
+      - name: SELLING_SQFT
+        expr: SELLING_SQFT
+        data_type: NUMBER
+        description: Selling-floor area (excludes back-of-house). Primary denominator for space productivity (sales/sqft).
+        synonyms:
+          - selling area
+
+      - name: AVG_WEEKLY_FOOTFALL
+        expr: AVG_WEEKLY_FOOTFALL
+        data_type: NUMBER
+        description: Average weekly customer visits. Derive conversion_rate = units_sold / avg_weekly_footfall.
+        synonyms:
+          - traffic
+          - footfall
+          - customer count
+
+  # ---------------------------------------------------------------------------
+  # DIM_SUPPLIER — Supplier Master (25 vendors)
+  # ---------------------------------------------------------------------------
+  - name: DIM_SUPPLIER
+    description: >
+      Supplier dimension: 25 vendors across US, Canada, Mexico, and China.
+      Includes contractual lead times, reliability scores, and supply risk assessment.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: DIM_SUPPLIER
+    primary_key:
+      columns:
+        - SUPPLIER_ID
+
+    dimensions:
+      - name: SUPPLIER_ID
+        expr: SUPPLIER_ID
+        data_type: VARCHAR
+        unique: true
+        description: Unique supplier identifier. Primary join key to FACT_SUPPLY_CHAIN.
+        synonyms:
+          - vendor id
+          - supplier
+
+      - name: SUPPLIER_NAME
+        expr: SUPPLIER_NAME
+        data_type: VARCHAR
+        description: Supplier display name. Label for vendor scorecards.
+        synonyms:
+          - vendor name
+          - supplier name
+
+      - name: SUPPLIER_COUNTRY
+        expr: SUPPLIER_COUNTRY
+        data_type: VARCHAR
+        description: Country of origin. Use to filter domestic vs import for tariff risk scenarios.
+        synonyms:
+          - country
+          - origin country
+        sample_values:
+          - US
+          - Canada
+          - Mexico
+          - China
+
+    facts:
+      - name: SUPPLIER_LEAD_TIME_DAYS
+        expr: SUPPLIER_LEAD_TIME_DAYS
+        data_type: NUMBER
+        description: Contractual lead time in days. Derive variance = FACT_SUPPLY_CHAIN.lead_time_days - supplier_lead_time_days.
+        synonyms:
+          - lead time
+          - delivery time
+
+      - name: SUPPLIER_RELIABILITY_SCORE
+        expr: SUPPLIER_RELIABILITY_SCORE
+        data_type: FLOAT
+        description: Composite reliability score (0-100). Alert when < 70 per guardrail threshold.
+        synonyms:
+          - reliability
+          - vendor score
+          - supplier score
+
+      - name: SUPPLY_RISK_SCORE
+        expr: SUPPLY_RISK_SCORE
+        data_type: NUMBER
+        description: Composite supply risk (0-100, higher = riskier). Flag suppliers > 60 for risk review.
+        synonyms:
+          - risk score
+          - supply risk
+
+  # ---------------------------------------------------------------------------
+  # DIM_EXTERNAL_MACRO — Monthly Macro-Economic Signals (222 rows)
+  # ---------------------------------------------------------------------------
+  - name: DIM_EXTERNAL_MACRO
+    description: >
+      Monthly regional macro-economic indicators: CPI, unemployment, consumer confidence.
+      Join to FACT_DEMAND_DAILY via region + DATE_TRUNC('month', transaction_date) = month_start.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: DIM_EXTERNAL_MACRO
+    primary_key:
+      columns:
+        - REGION
+        - MONTH_START
+
+    dimensions:
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+        description: Geographic region for the macro observation. Joins to FACT_DEMAND_DAILY.region.
+        synonyms:
+          - macro region
+
+    time_dimensions:
+      - name: MONTH_START
+        expr: MONTH_START
+        data_type: DATE
+        description: First calendar day of the reporting month. Join via DATE_TRUNC('month', transaction_date) = month_start.
+        synonyms:
+          - month
+          - reporting month
+
+    facts:
+      - name: CPI_INDEX
+        expr: CPI_INDEX
+        data_type: FLOAT
+        description: Consumer Price Index (base=100). Rising CPI indicates inflation pressure on consumer spending.
+        synonyms:
+          - cpi
+          - inflation index
+          - consumer price index
+
+      - name: UNEMPLOYMENT_RATE_PCT
+        expr: UNEMPLOYMENT_RATE_PCT
+        data_type: FLOAT
+        description: Unemployment rate %. Higher unemployment suppresses discretionary spend. Use regional average only (non-additive).
+        synonyms:
+          - unemployment
+          - jobless rate
+
+      - name: CONSUMER_CONFIDENCE_INDEX
+        expr: CONSUMER_CONFIDENCE_INDEX
+        data_type: FLOAT
+        description: Consumer sentiment index. Leading indicator for Electronics and Seasonal demand. Non-additive.
+        synonyms:
+          - cci
+          - consumer confidence
+          - consumer sentiment
+
+  # ---------------------------------------------------------------------------
+  # DIM_GUARDRAILS — Governance Rules (8 rules)
+  # ---------------------------------------------------------------------------
+  - name: DIM_GUARDRAILS
+    description: >
+      AI governance guardrail rules: 8 active rules defining breach thresholds,
+      escalation actions, severity, and persona ownership. Constrains AI
+      recommendations and automated actions.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: DIM_GUARDRAILS
+    primary_key:
+      columns:
+        - GUARDRAIL_ID
+
+    dimensions:
+      - name: GUARDRAIL_ID
+        expr: GUARDRAIL_ID
+        data_type: VARCHAR
+        unique: true
+        description: Governance rule identifier. Reference for FACT_RECOMMENDATIONS.guardrail_status.
+        synonyms:
+          - rule id
+          - guardrail
+        sample_values:
+          - GR-001
+          - GR-008
+
+      - name: GUARDRAIL_NAME
+        expr: GUARDRAIL_NAME
+        data_type: VARCHAR
+        description: Human-readable rule name. Surface in recommendation explainability outputs.
+        synonyms:
+          - rule name
+          - policy name
+
+      - name: SCOPE_DEPARTMENT
+        expr: SCOPE_DEPARTMENT
+        data_type: VARCHAR
+        description: Department scope ('all' = cross-department). Matches FACT_DEMAND_DAILY.department for compliance.
+        synonyms:
+          - rule scope
+          - applies to
+        sample_values:
+          - all
+          - Fresh & Grocery
+          - Consumer Electronics
+          - Seasonal & Home
+
+      - name: METRIC
+        expr: METRIC
+        data_type: VARCHAR
+        description: KPI name the guardrail evaluates. Maps to measurable columns in fact tables.
+        synonyms:
+          - monitored metric
+          - rule metric
+        sample_values:
+          - gross_margin_pct
+          - promo_discount_pct
+          - days_of_supply
+          - confidence_score
+
+      - name: OPERATOR
+        expr: OPERATOR
+        data_type: VARCHAR
+        description: Comparison operator for breach evaluation (>= or <=).
+        synonyms:
+          - comparison
+
+      - name: ACTION_ON_BREACH
+        expr: ACTION_ON_BREACH
+        data_type: VARCHAR
+        description: Prescribed action on guardrail violation. Drives FACT_RECOMMENDATIONS vocabulary.
+        synonyms:
+          - breach action
+          - violation action
+
+      - name: SEVERITY
+        expr: SEVERITY
+        data_type: VARCHAR
+        description: Severity level determining escalation path and approval requirements.
+        synonyms:
+          - priority
+          - criticality
+        sample_values:
+          - Critical
+          - High
+          - Medium
+
+      - name: OWNER_ROLE
+        expr: OWNER_ROLE
+        data_type: VARCHAR
+        description: Persona responsible for actioning breaches. Routes to relevant persona dashboard.
+        synonyms:
+          - owner
+          - responsible team
+
+      - name: ACTIVE_FLAG
+        expr: ACTIVE_FLAG
+        data_type: BOOLEAN
+        description: Whether guardrail is currently enforced. Always filter active_flag = TRUE for live evaluation.
+        synonyms:
+          - is active
+          - enabled
+
+      - name: DESCRIPTION
+        expr: DESCRIPTION
+        data_type: VARCHAR
+        description: Full rule description with business rationale. Surface verbatim in recommendation explanations.
+        synonyms:
+          - rule description
+
+    facts:
+      - name: THRESHOLD_VALUE
+        expr: THRESHOLD_VALUE
+        data_type: FLOAT
+        description: Numeric threshold triggering the guardrail. Define as reference value for alert rules.
+        synonyms:
+          - threshold
+          - limit
+
+  # ---------------------------------------------------------------------------
+  # FACT_DEMAND_DAILY — Master OBT (~15.8M rows)
+  # ---------------------------------------------------------------------------
+  - name: FACT_DEMAND_DAILY
+    description: >
+      Master one-big-table at daily SKU×Store grain (~15.8M rows, 2023-07-17 to 2026-07-13).
+      Contains demand actuals, forecasts, sales, inventory positions, external signals
+      (weather, competitors, digital trends), demand driver attribution (5 drivers summing
+      to deviation), and what-if scenario overlays. Primary analytical table for demand sensing.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: FACT_DEMAND_DAILY
+    primary_key:
+      columns:
+        - TRANSACTION_DATE
+        - STORE_ID
+        - SKU_ID
+
+    time_dimensions:
+      - name: TRANSACTION_DATE
+        expr: TRANSACTION_DATE
+        data_type: DATE
+        description: Calendar day of the demand record (grain). Use DATE_TRUNC for weekly/monthly aggregation. Join DIM_EXTERNAL_MACRO by DATE_TRUNC('month', transaction_date).
+        synonyms:
+          - date
+          - day
+          - sales date
+          - demand date
+
+    dimensions:
+      - name: FISCAL_YEAR
+        expr: FISCAL_YEAR
+        data_type: NUMBER
+        description: NRF 4-4-5 fiscal year. Use for YoY comps — do not use YEAR(transaction_date).
+        synonyms:
+          - fy
+          - fiscal year
+        sample_values:
+          - 2024
+          - 2025
+          - 2026
+
+      - name: FISCAL_QUARTER
+        expr: FISCAL_QUARTER
+        data_type: VARCHAR
+        description: Fiscal quarter label. Do not mix with QUARTER(transaction_date).
+        synonyms:
+          - quarter
+          - fiscal quarter
+          - fq
+        sample_values:
+          - FQ2024Q1
+          - FQ2025Q3
+
+      - name: FISCAL_MONTH
+        expr: FISCAL_MONTH
+        data_type: VARCHAR
+        description: Fiscal month (4-4-5 pattern). Not the same as calendar month — always use for retail budget reporting.
+        synonyms:
+          - fiscal month
+          - fm
+          - month
+        sample_values:
+          - FM202401
+          - FM202512
+
+      - name: FISCAL_WEEK
+        expr: FISCAL_WEEK
+        data_type: VARCHAR
+        description: Fiscal week (Sun-Sat). Join key to FACT_FORECAST for weekly forecast actuals.
+        synonyms:
+          - fiscal week
+          - fw
+          - week
+        sample_values:
+          - FW202401
+          - FW202527
+
+      - name: STORE_ID
+        expr: STORE_ID
+        data_type: VARCHAR
+        description: FK to DIM_STORE. Always join for store format, region, tier enrichment.
+        synonyms:
+          - store
+          - location
+
+      - name: SKU_ID
+        expr: SKU_ID
+        data_type: VARCHAR
+        description: FK to DIM_PRODUCT. Always join for category, brand, perishability context.
+        synonyms:
+          - sku
+          - product
+          - item
+
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+        description: Denormalised from DIM_STORE. Use directly for regional grouping without store join.
+        synonyms:
+          - sales region
+          - area
+        sample_values:
+          - Northeast
+          - Southeast
+          - Midwest
+          - West Coast
+          - South-Central
+          - Mid-Atlantic
+          - National
+
+      - name: CHANNEL
+        expr: CHANNEL
+        data_type: VARCHAR
+        description: Denormalised from DIM_STORE. Segment all demand KPIs by channel to prevent B&M/eComm mixing.
+        synonyms:
+          - sales channel
+        sample_values:
+          - Brick & Mortar
+          - eCommerce
+
+      - name: CATEGORY_L3
+        expr: CATEGORY_L3
+        data_type: VARCHAR
+        description: Denormalised sub-category. Most important dimension for demand scenario analysis — all scenarios defined at this level.
+        synonyms:
+          - sub-category
+          - segment
+          - subcategory
+
+      - name: DEPARTMENT
+        expr: DEPARTMENT
+        data_type: VARCHAR
+        description: Denormalised department (=category_l1). Matches DIM_GUARDRAILS.scope_department for guardrail scoping.
+        synonyms:
+          - dept
+          - division
+        sample_values:
+          - Fresh & Grocery
+          - Consumer Electronics
+          - Seasonal & Home
+
+      - name: BRAND
+        expr: BRAND
+        data_type: VARCHAR
+        description: Denormalised brand for brand-level demand velocity and margin analytics.
+        synonyms:
+          - brand name
+
+      - name: PROMO_FLAG
+        expr: PROMO_FLAG
+        data_type: BOOLEAN
+        description: TRUE = active promotion. Primary filter to segment promoted vs non-promoted demand periods.
+        synonyms:
+          - on promotion
+          - is promo
+          - promoted
+
+      - name: PROMO_ID
+        expr: PROMO_ID
+        data_type: VARCHAR
+        description: FK to FACT_PROMOTIONS. NULL when promo_flag = FALSE. Join for full promo metadata.
+        synonyms:
+          - promotion id
+          - promo code
+
+      - name: STOCKOUT_FLAG
+        expr: STOCKOUT_FLAG
+        data_type: BOOLEAN
+        description: "TRUE when actual_demand > available_to_sell. Primary demand sensing alert. stockout_rate = AVG(CAST(stockout_flag AS INT))."
+        synonyms:
+          - out of stock
+          - oos
+          - stocked out
+
+      - name: OVERSTOCK_FLAG
+        expr: OVERSTOCK_FLAG
+        data_type: BOOLEAN
+        description: TRUE when ending inventory > 3x daily run rate. Mirror alert to stockout for inventory positioning.
+        synonyms:
+          - overstocked
+          - excess inventory
+
+      - name: WEATHER_CONDITION
+        expr: WEATHER_CONDITION
+        data_type: VARCHAR
+        description: Categorical weather. 'Heatwave' = temperature_anomaly > 8°F, directly flags fresh-produce scenario.
+        synonyms:
+          - weather
+        sample_values:
+          - Sunny
+          - Partly Cloudy
+          - Overcast
+          - Rainy
+          - Stormy
+          - Heatwave
+
+      - name: IS_HOLIDAY
+        expr: IS_HOLIDAY
+        data_type: BOOLEAN
+        description: TRUE for tracked retail holidays. Pair with holiday_name for event-specific analysis.
+        synonyms:
+          - holiday
+          - retail event
+
+      - name: HOLIDAY_NAME
+        expr: HOLIDAY_NAME
+        data_type: VARCHAR
+        description: Retail event name (NULL if not a holiday). Filter IS NOT NULL for holiday-specific KPIs.
+        synonyms:
+          - event name
+          - holiday event
+        sample_values:
+          - Thanksgiving
+          - Christmas
+          - 4th July
+          - Memorial Day
+
+      - name: COMPETITOR_STOCKOUT_FLAG
+        expr: COMPETITOR_STOCKOUT_FLAG
+        data_type: BOOLEAN
+        description: TRUE = competitor stocked out. When TRUE AND own stockout_flag = FALSE, full demand capture opportunity.
+        synonyms:
+          - competitor oos
+          - competitor out of stock
+
+      - name: COMPETITOR_PROMO_FLAG
+        expr: COMPETITOR_PROMO_FLAG
+        data_type: BOOLEAN
+        description: TRUE = competitor running promotion. When TRUE AND own promo_flag = FALSE, competitive pressure signal.
+        synonyms:
+          - competitor promotion
+          - competitor on promo
+
+      - name: SCENARIO_ID
+        expr: SCENARIO_ID
+        data_type: VARCHAR
+        description: >
+          Scenario overlay tag. NULL = baseline (steady-state). Filter IS NULL for standard KPIs.
+          Each named scenario produces distinct driver attribution and recommendation.
+        synonyms:
+          - scenario
+          - what-if scenario
+        sample_values:
+          - fresh_produce_heatwave
+          - viral_speaker_spike
+          - patio_furniture_drop
+          - artisan_bread_dip
+          - premium_yogurt_lift
+
+    facts:
+      # --- Demand & Forecast ---
+      - name: BASELINE_FORECAST_UNITS
+        expr: BASELINE_FORECAST_UNITS
+        data_type: FLOAT
+        description: Structural baseline demand before drivers/scenarios. Foundation for lift attribution (uplift = expected - baseline).
+        synonyms:
+          - baseline forecast
+          - base demand
+
+      - name: EXPECTED_DEMAND_UNITS
+        expr: EXPECTED_DEMAND_UNITS
+        data_type: FLOAT
+        description: Model-expected demand after all multiplicative drivers. Primary demand measure. Deviation from this signals external shocks.
+        synonyms:
+          - expected demand
+          - adjusted demand
+
+      - name: FORECAST_UNITS
+        expr: FORECAST_UNITS
+        data_type: FLOAT
+        description: Operational statistical forecast (includes bias/noise). The 'human-like' forecast driving replenishment. Use for MAPE calculation.
+        synonyms:
+          - forecast
+          - predicted demand
+          - statistical forecast
+
+      - name: ACTUAL_DEMAND_UNITS
+        expr: ACTUAL_DEMAND_UNITS
+        data_type: FLOAT
+        description: Latent true demand (uncensored by stockouts). Critical for demand sensing — use instead of units_sold for true demand signal.
+        synonyms:
+          - actual demand
+          - true demand
+          - uncensored demand
+
+      - name: UNITS_SOLD
+        expr: UNITS_SOLD
+        data_type: NUMBER
+        description: Units transacted at POS (censored by availability). When stockout_flag=TRUE, units_sold < actual_demand. Use for revenue calculations.
+        synonyms:
+          - sales units
+          - quantity sold
+          - units
+
+      - name: UNITS_SOLD_REG
+        expr: UNITS_SOLD_REG
+        data_type: NUMBER
+        description: Units sold at regular price. regular_revenue = units_sold_reg x regular_price.
+        synonyms:
+          - regular sales
+          - full price units
+
+      - name: UNITS_SOLD_PROMO
+        expr: UNITS_SOLD_PROMO
+        data_type: NUMBER
+        description: Units sold on promotion. Zero when promo_flag = FALSE.
+        synonyms:
+          - promo sales
+          - promotional units
+
+      - name: RETURNS_UNITS
+        expr: RETURNS_UNITS
+        data_type: NUMBER
+        description: Units returned. returns_rate = returns_units / units_sold. Monitor Electronics for elevated rates.
+        synonyms:
+          - returns
+          - returned units
+
+      - name: NET_UNITS
+        expr: NET_UNITS
+        data_type: NUMBER
+        description: Net sellable units (units_sold - returns_units). Primary unit P&L measure.
+        synonyms:
+          - net sales units
+          - net quantity
+
+      - name: LOST_SALES_UNITS_EST
+        expr: LOST_SALES_UNITS_EST
+        data_type: NUMBER
+        description: >
+          Estimated lost demand from stockouts = MAX(0, actual_demand - units_sold). Only > 0 when stockout_flag=TRUE.
+          lost_revenue = lost_sales_units_est x regular_price. Core demand sensing KPI.
+        synonyms:
+          - lost sales
+          - missed sales
+          - stockout impact
+
+      - name: DEMAND_DEVIATION_PCT
+        expr: DEMAND_DEVIATION_PCT
+        data_type: FLOAT
+        description: >
+          Percent deviation of actual vs expected demand. Primary demand sensing signal.
+          Identity: = driver_weather_pp + driver_promo_pp + driver_competitor_pp + driver_digital_pp + driver_residual_pp.
+          Flag |deviation| > 10% as significant.
+        synonyms:
+          - demand deviation
+          - deviation percent
+          - demand variance
+
+      - name: FORECAST_ERROR_UNITS
+        expr: FORECAST_ERROR_UNITS
+        data_type: FLOAT
+        description: forecast_units - actual_demand_units. Positive = over-forecast (excess inventory risk). Negative = under-forecast (stockout risk).
+        synonyms:
+          - forecast error
+          - demand error
+
+      # --- Financials ---
+      - name: REGULAR_PRICE
+        expr: REGULAR_PRICE
+        data_type: FLOAT
+        description: Full list price. Base for price elasticity. price_gap_vs_competitor = (competitor_price_index/100 x regular_price) - regular_price.
+        synonyms:
+          - list price
+          - shelf price
+          - regular price
+
+      - name: AVG_SELLING_PRICE
+        expr: AVG_SELLING_PRICE
+        data_type: FLOAT
+        description: Average realized selling price. gross_sales_amt = units_sold x avg_selling_price. Lower than regular_price when promo active.
+        synonyms:
+          - asp
+          - average price
+          - selling price
+
+      - name: PROMO_DISCOUNT_PCT
+        expr: PROMO_DISCOUNT_PCT
+        data_type: FLOAT
+        description: Discount depth (0-50%). Tiers — Shallow (<10%), Moderate (10-25%), Deep (>25%). Zero when no promo.
+        synonyms:
+          - discount
+          - discount percent
+          - markdown
+
+      - name: GROSS_SALES_AMT
+        expr: GROSS_SALES_AMT
+        data_type: FLOAT
+        description: Gross revenue (units_sold x avg_selling_price). Primary top-line revenue measure.
+        synonyms:
+          - gross sales
+          - gross revenue
+          - revenue
+
+      - name: RETURNS_AMT
+        expr: RETURNS_AMT
+        data_type: FLOAT
+        description: Returns dollar value. returns_rate_$ = returns_amt / gross_sales_amt.
+        synonyms:
+          - return dollars
+          - refunds
+
+      - name: NET_SALES_AMT
+        expr: NET_SALES_AMT
+        data_type: FLOAT
+        description: Net revenue (gross - returns). Standard retail P&L top-line. Numerator for gross margin %.
+        synonyms:
+          - net sales
+          - net revenue
+
+      - name: COGS_AMT
+        expr: COGS_AMT
+        data_type: FLOAT
+        description: Cost of goods sold. gross_margin_pct = gross_margin_amt / net_sales_amt. Alert when margin < 18% guardrail.
+        synonyms:
+          - cogs
+          - cost of goods
+          - product cost
+
+      - name: GROSS_MARGIN_AMT
+        expr: GROSS_MARGIN_AMT
+        data_type: FLOAT
+        description: Gross profit (net_sales - COGS). Primary profitability KPI. Monitor promo impact on margin.
+        synonyms:
+          - gross margin
+          - margin
+          - profit
+
+      # --- Inventory ---
+      - name: ON_HAND_UNITS
+        expr: ON_HAND_UNITS
+        data_type: NUMBER
+        description: Beginning-of-day inventory. When = 0, store already stocked out. Alert when < safety_stock_units.
+        synonyms:
+          - on hand
+          - inventory
+          - stock level
+          - boh
+
+      - name: ENDING_ON_HAND_UNITS
+        expr: ENDING_ON_HAND_UNITS
+        data_type: NUMBER
+        description: End-of-day inventory. Derive turnover = units_sold / ((on_hand + ending_on_hand) / 2).
+        synonyms:
+          - ending inventory
+          - eoh
+          - closing stock
+
+      - name: AVAILABLE_TO_SELL_UNITS
+        expr: AVAILABLE_TO_SELL_UNITS
+        data_type: NUMBER
+        description: Supply constraint. units_sold = MIN(actual_demand, available_to_sell). Gap = demand-supply mismatch.
+        synonyms:
+          - available inventory
+          - ats
+
+      - name: DAYS_OF_SUPPLY
+        expr: DAYS_OF_SUPPLY
+        data_type: FLOAT
+        description: Ending inventory / 7-day avg demand. Primary inventory health KPI. Alert when < lead_time + safety buffer.
+        synonyms:
+          - dos
+          - days of stock
+
+      - name: SAFETY_STOCK_UNITS
+        expr: SAFETY_STOCK_UNITS
+        data_type: NUMBER
+        description: Target minimum buffer. on_hand < safety_stock = stockout risk flag.
+        synonyms:
+          - safety stock
+          - buffer stock
+
+      - name: REORDER_POINT_UNITS
+        expr: REORDER_POINT_UNITS
+        data_type: NUMBER
+        description: Reorder trigger level. ending_on_hand < reorder_point = 'reorder required' flag.
+        synonyms:
+          - reorder point
+          - rop
+
+      - name: ON_ORDER_UNITS
+        expr: ON_ORDER_UNITS
+        data_type: NUMBER
+        description: Units on open POs (not yet received). Effective coverage = ending_on_hand + on_order.
+        synonyms:
+          - on order
+          - pending orders
+
+      - name: IN_TRANSIT_UNITS
+        expr: IN_TRANSIT_UNITS
+        data_type: NUMBER
+        description: Units shipped but not received. Add to ending_on_hand for next-day expected availability.
+        synonyms:
+          - in transit
+          - pipeline inventory
+
+      # --- External Signals ---
+      - name: TEMPERATURE_HIGH_F
+        expr: TEMPERATURE_HIGH_F
+        data_type: FLOAT
+        description: Daily high temp (°F). +5°F above seasonal norm drives +8-12% berries/salad demand.
+        synonyms:
+          - temperature
+          - high temp
+          - max temperature
+
+      - name: TEMPERATURE_ANOMALY_F
+        expr: TEMPERATURE_ANOMALY_F
+        data_type: FLOAT
+        description: Temp deviation from seasonal norm. Primary weather attribution variable. +1°F anomaly ≈ +0.8pp fresh produce deviation.
+        synonyms:
+          - temp anomaly
+          - weather anomaly
+
+      - name: PRECIPITATION_INCHES
+        expr: PRECIPITATION_INCHES
+        data_type: FLOAT
+        description: Daily rainfall (inches). Rain > 0.1 reduces B&M footfall ~5-8%. Pair with temp for full weather decomposition.
+        synonyms:
+          - rain
+          - precipitation
+          - rainfall
+
+      - name: GOOGLE_TRENDS_SCORE
+        expr: GOOGLE_TRENDS_SCORE
+        data_type: FLOAT
+        description: Regional search interest (0-100). Score > 60 in Electronics = potential viral demand event. Leading indicator.
+        synonyms:
+          - trends score
+          - search interest
+          - digital demand signal
+
+      - name: COMPETITOR_AVAILABILITY_PCT
+        expr: COMPETITOR_AVAILABILITY_PCT
+        data_type: FLOAT
+        description: Competitor in-stock %. When < 85% = competitor partial stockout = demand transfer opportunity.
+        synonyms:
+          - competitor availability
+          - comp in-stock
+
+      - name: COMPETITOR_PRICE_INDEX
+        expr: COMPETITOR_PRICE_INDEX
+        data_type: FLOAT
+        description: Competitor price relative to Brightway (100 = parity). < 95 triggers competitive pricing pressure alert.
+        synonyms:
+          - competitor price
+          - price index
+          - comp price index
+
+      # --- Demand Drivers (attribution, sum to demand_deviation_pct) ---
+      - name: DRIVER_WEATHER_PP
+        expr: DRIVER_WEATHER_PP
+        data_type: FLOAT
+        description: Weather contribution (pp). Part of identity summing to demand_deviation_pct. Driven by temperature_anomaly_f.
+        synonyms:
+          - weather driver
+          - weather impact
+
+      - name: DRIVER_PROMO_PP
+        expr: DRIVER_PROMO_PP
+        data_type: FLOAT
+        description: Promotion contribution (pp). Positive = promo lift; negative = post-promo dip. Pair with FACT_PROMOTIONS.
+        synonyms:
+          - promo driver
+          - promotion impact
+
+      - name: DRIVER_COMPETITOR_PP
+        expr: DRIVER_COMPETITOR_PP
+        data_type: FLOAT
+        description: Competitor contribution (pp). Driven by competitor_price_index and stockout/promo flags.
+        synonyms:
+          - competitor driver
+          - competitive impact
+
+      - name: DRIVER_DIGITAL_PP
+        expr: DRIVER_DIGITAL_PP
+        data_type: FLOAT
+        description: Digital/social contribution (pp). Primary driver in viral_speaker_spike scenario (+53pp). Driven by google_trends_score.
+        synonyms:
+          - digital driver
+          - social media impact
+          - viral impact
+
+      - name: DRIVER_RESIDUAL_PP
+        expr: DRIVER_RESIDUAL_PP
+        data_type: FLOAT
+        description: Unexplained residual (pp). When |residual| > 5pp, flag as unexplained deviation for investigation.
+        synonyms:
+          - residual driver
+          - unexplained variance
+
+    # Table-level metrics for FACT_DEMAND_DAILY
+    metrics:
+      - name: TOTAL_NET_SALES
+        expr: SUM(NET_SALES_AMT)
+        description: Total net sales revenue in dollars.
+        synonyms:
+          - total revenue
+          - net revenue
+          - total sales
+
+      - name: TOTAL_GROSS_MARGIN
+        expr: SUM(GROSS_MARGIN_AMT)
+        description: Total gross margin dollars.
+        synonyms:
+          - total margin
+          - gross profit
+
+      - name: GROSS_MARGIN_PCT
+        expr: (SUM(GROSS_MARGIN_AMT) / NULLIF(SUM(NET_SALES_AMT), 0)) * 100
+        description: Gross margin as percentage of net sales. Guardrail floor = 18%.
+        synonyms:
+          - margin percent
+          - gm%
+          - gross margin rate
+          - profitability
+
+      - name: TOTAL_UNITS_SOLD
+        expr: SUM(UNITS_SOLD)
+        description: Total units sold (censored by availability).
+        synonyms:
+          - total volume
+          - total units
+          - sales volume
+
+      - name: TOTAL_LOST_SALES_UNITS
+        expr: SUM(LOST_SALES_UNITS_EST)
+        description: Total estimated lost sales units from stockouts.
+        synonyms:
+          - lost sales
+          - missed sales
+          - stockout impact
+
+      - name: LOST_SALES_REVENUE
+        expr: SUM(LOST_SALES_UNITS_EST * REGULAR_PRICE)
+        description: Estimated revenue lost from stockouts (lost units x regular price).
+        synonyms:
+          - lost revenue
+          - stockout cost
+          - missed revenue
+
+      - name: STOCKOUT_RATE
+        expr: AVG(CASE WHEN STOCKOUT_FLAG THEN 1 ELSE 0 END) * 100
+        description: Stockout rate as percentage of SKU-store-days. Alert when > 5% in any category.
+        synonyms:
+          - oos rate
+          - out of stock rate
+          - stockout percentage
+
+      - name: AVG_DAYS_OF_SUPPLY
+        expr: AVG(DAYS_OF_SUPPLY)
+        description: Average days of supply. Compare against lead time + safety buffer.
+        synonyms:
+          - avg dos
+          - average inventory days
+          - mean days of supply
+
+      - name: SELL_THROUGH_RATE
+        expr: (SUM(UNITS_SOLD) / NULLIF(SUM(ON_HAND_UNITS), 0)) * 100
+        description: Sell-through rate (units sold / beginning inventory). Measures inventory velocity.
+        synonyms:
+          - sell through
+          - inventory turnover rate
+          - str
+
+  # ---------------------------------------------------------------------------
+  # FACT_FORECAST — Weekly Forecast Accuracy (535K rows)
+  # ---------------------------------------------------------------------------
+  - name: FACT_FORECAST
+    description: >
+      Weekly forecast accuracy at SKU×Region grain (535,500 rows). Contains historical
+      actuals vs forecast comparisons and 13-week forward projections with P10/P90
+      confidence bounds. Filter forecast_type = 'actuals_vs_forecast' for accuracy KPIs;
+      'forward_projection' for planning dashboards.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: FACT_FORECAST
+    primary_key:
+      columns:
+        - SKU_ID
+        - REGION
+        - FISCAL_YEAR
+        - FISCAL_WEEK
+        - FORECAST_TYPE
+
+    time_dimensions:
+      - name: WEEK_START_DATE
+        expr: WEEK_START_DATE
+        data_type: DATE
+        description: Sunday week-start date. Use for time-series visualisations. Do not use as PK — use fiscal_week.
+        synonyms:
+          - week start
+          - week beginning
+
+    dimensions:
+      - name: SKU_ID
+        expr: SKU_ID
+        data_type: VARCHAR
+        description: FK to DIM_PRODUCT. Join for category-level MAPE analysis.
+        synonyms:
+          - sku
+          - product
+
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+        description: Sales region. Join to DIM_EXTERNAL_MACRO for macro context.
+        synonyms:
+          - sales region
+
+      - name: FISCAL_YEAR
+        expr: FISCAL_YEAR
+        data_type: NUMBER
+        description: NRF 4-4-5 fiscal year. Always non-null. Use for YoY forecast MAPE trends.
+        synonyms:
+          - fy
+          - year
+
+      - name: FISCAL_WEEK
+        expr: FISCAL_WEEK
+        data_type: VARCHAR
+        description: Fiscal week label. Join to FACT_DEMAND_DAILY.fiscal_week for daily-to-weekly comparison.
+        synonyms:
+          - week
+          - fiscal week
+
+      - name: FORECAST_TYPE
+        expr: FORECAST_TYPE
+        data_type: VARCHAR
+        description: >
+          'actuals_vs_forecast' = history with actuals available (use for MAPE/bias).
+          'forward_projection' = future 13 weeks (no actuals). Always filter by this.
+        synonyms:
+          - type
+          - record type
+        sample_values:
+          - actuals_vs_forecast
+          - forward_projection
+        is_enum: true
+
+      - name: HORIZON_WEEK
+        expr: HORIZON_WEEK
+        data_type: FLOAT
+        description: Forward horizon index (1=next week, 13=13 weeks out). NULL for historical. MAPE typically increases with horizon.
+        synonyms:
+          - forecast horizon
+          - weeks ahead
+
+    facts:
+      - name: EXPECTED_UNITS
+        expr: EXPECTED_UNITS
+        data_type: FLOAT
+        description: Weekly model-expected demand. Compare to actual_units for model accuracy.
+        synonyms:
+          - expected demand
+
+      - name: FORECAST_UNITS
+        expr: FORECAST_UNITS
+        data_type: FLOAT
+        description: "Operational statistical forecast. Primary for MAPE: ABS(forecast - actual) / actual."
+        synonyms:
+          - forecast
+          - predicted units
+
+      - name: ACTUAL_UNITS
+        expr: ACTUAL_UNITS
+        data_type: FLOAT
+        description: Weekly actual demand (uncensored). NULL for forward_projection rows — use NULLIF to avoid division errors.
+        synonyms:
+          - actuals
+          - actual demand
+
+      - name: UNITS_SOLD
+        expr: UNITS_SOLD
+        data_type: FLOAT
+        description: Weekly units sold (censored). Gap vs actual_units = weekly lost sales from stockouts.
+        synonyms:
+          - sales
+
+      - name: FORECAST_BIAS_PCT
+        expr: FORECAST_BIAS_PCT
+        data_type: FLOAT
+        description: >
+          Directional bias: (forecast/actual - 1) x 100. Positive = over-forecast (inventory risk).
+          Target |bias| < 5%. NULL for forward projections.
+        synonyms:
+          - bias
+          - forecast bias
+
+      - name: ABS_PCT_ERROR
+        expr: ABS_PCT_ERROR
+        data_type: FLOAT
+        description: >
+          Absolute % error (MAPE component). AVG(abs_pct_error) over period = MAPE.
+          Industry benchmark: < 20% fresh produce, < 10% staples. NULL for forward projections.
+        synonyms:
+          - mape
+          - absolute error
+          - ape
+          - forecast accuracy
+
+      - name: CONSENSUS_FORECAST_UNITS
+        expr: CONSENSUS_FORECAST_UNITS
+        data_type: FLOAT
+        description: Blended consensus forecast (statistical + planner judgement). Preferred for MAPE reporting. consensus_MAPE vs forecast_MAPE gap = planner value-add.
+        synonyms:
+          - consensus forecast
+          - blended forecast
+
+      - name: FORECAST_LOWER_UNITS
+        expr: FORECAST_LOWER_UNITS
+        data_type: FLOAT
+        description: P10 lower confidence bound. Actuals below this = significantly lower than expected.
+        synonyms:
+          - lower bound
+          - p10
+          - downside forecast
+
+      - name: FORECAST_UPPER_UNITS
+        expr: FORECAST_UPPER_UNITS
+        data_type: FLOAT
+        description: P90 upper confidence bound. actual > upper AND scenario IS NOT NULL = confirmed demand spike event.
+        synonyms:
+          - upper bound
+          - p90
+          - upside forecast
+
+    metrics:
+      - name: FORECAST_ACCURACY_MAPE
+        expr: AVG(ABS_PCT_ERROR)
+        description: Mean Absolute Percentage Error. Lower is better. Filter forecast_type = 'actuals_vs_forecast'.
+        synonyms:
+          - mape
+          - forecast accuracy
+          - forecast error rate
+
+      - name: FORECAST_BIAS
+        expr: AVG(FORECAST_BIAS_PCT)
+        description: Average forecast bias. Positive = over-forecasting, negative = under-forecasting.
+        synonyms:
+          - bias
+          - forecast bias
+          - systematic error
+
+  # ---------------------------------------------------------------------------
+  # FACT_PROMOTIONS — Promo Events with Analytics (7,144 rows)
+  # ---------------------------------------------------------------------------
+  - name: FACT_PROMOTIONS
+    description: >
+      Promotion event table (7,144 promo-SKU-store combinations). Includes mechanics,
+      effectiveness metrics (lift, ROI), and side-effects (cannibalization, halo,
+      post-promo dip). Net category lift = promo_lift_pct - cannibalization_pct.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: FACT_PROMOTIONS
+    primary_key:
+      columns:
+        - PROMO_ID
+
+    time_dimensions:
+      - name: PROMO_START_DATE
+        expr: PROMO_START_DATE
+        data_type: DATE
+        description: Promotion start date. Use with promo_end_date to define event window for FACT_DEMAND_DAILY joins.
+        synonyms:
+          - start date
+          - promo start
+
+      - name: PROMO_END_DATE
+        expr: PROMO_END_DATE
+        data_type: DATE
+        description: Promotion end date. promo_duration_days = promo_end_date - promo_start_date + 1.
+        synonyms:
+          - end date
+          - promo end
+
+    dimensions:
+      - name: PROMO_ID
+        expr: PROMO_ID
+        data_type: VARCHAR
+        unique: true
+        description: Unique promotion identifier. Primary join key from FACT_DEMAND_DAILY.promo_id.
+        synonyms:
+          - promotion id
+          - promo
+        sample_values:
+          - PROMO-2023-00001
+
+      - name: PROMO_NAME
+        expr: PROMO_NAME
+        data_type: VARCHAR
+        description: Promotion display name for dashboards.
+        synonyms:
+          - promotion name
+          - promo name
+
+      - name: PROMO_TYPE
+        expr: PROMO_TYPE
+        data_type: VARCHAR
+        description: Promotion mechanic type. Segment ROI by promo_type for mechanic-level analysis.
+        synonyms:
+          - promotion type
+          - promo mechanic
+          - deal type
+        sample_values:
+          - "% Off"
+          - "$ Off"
+          - BOGO
+          - Multi-buy
+          - Bundle
+        is_enum: true
+
+      - name: SKU_ID
+        expr: SKU_ID
+        data_type: VARCHAR
+        description: FK to DIM_PRODUCT. Join for category and brand context.
+        synonyms:
+          - sku
+          - product
+
+      - name: STORE_ID
+        expr: STORE_ID
+        data_type: VARCHAR
+        description: FK to DIM_STORE. NULL = chain-wide. Use COALESCE for store-level vs chain-wide segmentation.
+        synonyms:
+          - store
+          - location
+
+      - name: AD_VEHICLE
+        expr: AD_VEHICLE
+        data_type: VARCHAR
+        description: Advertising vehicle. Segment promo ROI by ad_vehicle for most effective media channels.
+        synonyms:
+          - advertising
+          - ad type
+          - media vehicle
+
+      - name: DISPLAY_TYPE
+        expr: DISPLAY_TYPE
+        data_type: VARCHAR
+        description: In-store display type. Combine with ad_vehicle for full promo execution scoring.
+        synonyms:
+          - display
+          - merchandising display
+
+      - name: VENDOR_FUNDED_FLAG
+        expr: VENDOR_FUNDED_FLAG
+        data_type: BOOLEAN
+        description: TRUE if vendor/supplier funded. Vendor-funded promos have higher effective ROI for Brightway.
+        synonyms:
+          - vendor funded
+          - supplier funded
+          - trade funded
+
+      - name: POST_PROMO_DIP_FLAG
+        expr: POST_PROMO_DIP_FLAG
+        data_type: BOOLEAN
+        description: TRUE = pantry-loading effect observed. Avoid consecutive promos within 4 weeks when TRUE.
+        synonyms:
+          - post promo dip
+          - demand dip after promo
+
+    facts:
+      - name: PROMO_DURATION_DAYS
+        expr: PROMO_DURATION_DAYS
+        data_type: NUMBER
+        description: Duration in days. Longer promos have higher cannibalization and post-promo dip.
+        synonyms:
+          - duration
+          - promo length
+
+      - name: PROMO_DISCOUNT_PCT
+        expr: PROMO_DISCOUNT_PCT
+        data_type: FLOAT
+        description: Discount depth (0-50%). Tiers — Shallow (<10%), Moderate (10-25%), Deep (>25%).
+        synonyms:
+          - discount
+          - discount percent
+
+      - name: PROMO_PRICE
+        expr: PROMO_PRICE
+        data_type: FLOAT
+        description: Promo selling price. Verify ≈ regular_price × (1 - promo_discount_pct).
+        synonyms:
+          - promo price
+          - deal price
+
+      - name: VENDOR_FUNDING_AMT
+        expr: VENDOR_FUNDING_AMT
+        data_type: FLOAT
+        description: Vendor funding dollars. effective_promo_cost = (discount x units x regular_price) - vendor_funding_amt.
+        synonyms:
+          - vendor funding
+          - trade spend
+
+      - name: PROMO_LIFT_PCT
+        expr: PROMO_LIFT_PCT
+        data_type: FLOAT
+        description: Measured promotional lift %. Primary effectiveness KPI. Net lift = promo_lift_pct - cannibalization_pct.
+        synonyms:
+          - promo lift
+          - lift
+          - uplift
+          - sales lift
+
+      - name: PROMO_UNITS_INCREMENTAL
+        expr: PROMO_UNITS_INCREMENTAL
+        data_type: NUMBER
+        description: Incremental units from promo. incremental_revenue = promo_units_incremental x avg_selling_price.
+        synonyms:
+          - incremental units
+          - promo uplift units
+
+      - name: PROMO_ROI
+        expr: PROMO_ROI
+        data_type: FLOAT
+        description: Promotion ROI (incremental margin / promo cost). Primary promo P&L KPI. Alert when < 0.
+        synonyms:
+          - roi
+          - promotion roi
+          - return on investment
+
+      - name: CANNIBALIZATION_PCT
+        expr: CANNIBALIZATION_PCT
+        data_type: FLOAT
+        description: Category cannibalization %. High cannibalization = promo self-cannibalising category.
+        synonyms:
+          - cannibalization
+          - cannibal effect
+          - category switching
+
+      - name: HALO_EFFECT_PCT
+        expr: HALO_EFFECT_PCT
+        data_type: FLOAT
+        description: Halo lift on adjacent SKUs. Identify complementary products for assortment adjacency optimisation.
+        synonyms:
+          - halo effect
+          - halo lift
+          - basket impact
+
+    metrics:
+      - name: AVG_PROMO_ROI
+        expr: AVG(PROMO_ROI)
+        description: Average promotion return on investment.
+        synonyms:
+          - promo roi
+          - promotion effectiveness
+          - average roi
+
+      - name: AVG_PROMO_LIFT
+        expr: AVG(PROMO_LIFT_PCT)
+        description: Average promotional lift percentage.
+        synonyms:
+          - promo lift
+          - average lift
+          - promotion uplift
+
+      - name: TOTAL_INCREMENTAL_PROMO_UNITS
+        expr: SUM(PROMO_UNITS_INCREMENTAL)
+        description: Total incremental units generated by promotions.
+        synonyms:
+          - incremental units
+          - promo volume uplift
+
+  # ---------------------------------------------------------------------------
+  # FACT_SUPPLY_CHAIN — Purchase Orders & Logistics (16,703 POs)
+  # ---------------------------------------------------------------------------
+  - name: FACT_SUPPLY_CHAIN
+    description: >
+      Purchase order and logistics table (16,703 POs). Tracks supplier deliveries,
+      lead times, fill rates, OTIF performance, and freight costs across 5 transport modes.
+      OTIF target >= 85%. Fill rate target >= 95%.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: FACT_SUPPLY_CHAIN
+    primary_key:
+      columns:
+        - PO_ID
+
+    time_dimensions:
+      - name: ORDER_DATE
+        expr: ORDER_DATE
+        data_type: DATE
+        description: PO placement date. expected_lead_time = expected_delivery_date - order_date.
+        synonyms:
+          - po date
+          - order date
+
+      - name: EXPECTED_DELIVERY_DATE
+        expr: EXPECTED_DELIVERY_DATE
+        data_type: DATE
+        description: Expected delivery per PO. Compare to DIM_SUPPLIER.supplier_lead_time_days.
+        synonyms:
+          - expected delivery
+          - eta
+
+      - name: ACTUAL_DELIVERY_DATE
+        expr: ACTUAL_DELIVERY_DATE
+        data_type: DATE
+        description: Actual delivery date. late_delivery_days = actual_delivery_date - expected_delivery_date (> 0 = late).
+        synonyms:
+          - delivery date
+          - received date
+
+    dimensions:
+      - name: PO_ID
+        expr: PO_ID
+        data_type: VARCHAR
+        unique: true
+        description: Unique purchase order identifier.
+        synonyms:
+          - purchase order
+          - po number
+          - order id
+
+      - name: SUPPLIER_ID
+        expr: SUPPLIER_ID
+        data_type: VARCHAR
+        description: FK to DIM_SUPPLIER. Join for vendor scorecard analysis.
+        synonyms:
+          - vendor
+          - supplier
+
+      - name: SKU_ID
+        expr: SKU_ID
+        data_type: VARCHAR
+        description: FK to DIM_PRODUCT. Join for category-level supply chain analysis.
+        synonyms:
+          - sku
+          - product
+
+      - name: DC_ID
+        expr: DC_ID
+        data_type: VARCHAR
+        description: Distribution centre receiving. Join DIM_STORE on dc_id to trace DC performance to store stockouts.
+        synonyms:
+          - distribution center
+          - warehouse
+          - dc
+
+      - name: OTIF_FLAG
+        expr: OTIF_FLAG
+        data_type: BOOLEAN
+        description: "On-Time-In-Full flag. OTIF_rate = AVG(CAST(otif_flag AS INT)). Industry target >= 85%."
+        synonyms:
+          - otif
+          - on time in full
+          - on-time delivery
+
+      - name: TRANSPORT_MODE
+        expr: TRANSPORT_MODE
+        data_type: VARCHAR
+        description: Shipment mode. Air = 3-5x cost of Ground but lower lead-time variance. Use for freight normalisation.
+        synonyms:
+          - shipping mode
+          - transport
+          - carrier type
+        sample_values:
+          - Truckload
+          - LTL
+          - Intermodal
+          - Air
+          - Parcel
+        is_enum: true
+
+      - name: PO_STATUS
+        expr: PO_STATUS
+        data_type: VARCHAR
+        description: Order status. Filter 'In Transit' for pipeline inventory visibility.
+        synonyms:
+          - order status
+          - po status
+        sample_values:
+          - Received
+          - In Transit
+        is_enum: true
+
+    facts:
+      - name: ORDER_QTY
+        expr: ORDER_QTY
+        data_type: NUMBER
+        description: Quantity ordered. Compare to received_qty for fill rate.
+        synonyms:
+          - order quantity
+          - ordered units
+
+      - name: RECEIVED_QTY
+        expr: RECEIVED_QTY
+        data_type: NUMBER
+        description: Quantity received. fill_rate = received_qty / order_qty. Flag < 90% as performance issue.
+        synonyms:
+          - received quantity
+          - received units
+
+      - name: UNIT_COST
+        expr: UNIT_COST
+        data_type: FLOAT
+        description: PO unit cost. Compare to FACT_DEMAND_DAILY.cogs_amt/units_sold for COGS reconciliation.
+        synonyms:
+          - cost per unit
+          - purchase price
+
+      - name: LEAD_TIME_DAYS
+        expr: LEAD_TIME_DAYS
+        data_type: NUMBER
+        description: Realized lead time (days). Variance = lead_time_days - DIM_SUPPLIER.supplier_lead_time_days.
+        synonyms:
+          - lead time
+          - delivery time
+          - cycle time
+
+      - name: LEAD_TIME_VARIANCE_DAYS
+        expr: LEAD_TIME_VARIANCE_DAYS
+        data_type: NUMBER
+        description: Days late vs nominal (positive = late). High variance drives safety stock buffer. Stockout risk signal.
+        synonyms:
+          - lead time variance
+          - delivery delay
+          - lateness
+
+      - name: FILL_RATE_PCT
+        expr: FILL_RATE_PCT
+        data_type: FLOAT
+        description: Order fill rate % (received/ordered x 100). Target >= 95%. Alert < 90%.
+        synonyms:
+          - fill rate
+          - order fill
+          - fulfilment rate
+
+      - name: SUPPLIER_RELIABILITY_SCORE
+        expr: SUPPLIER_RELIABILITY_SCORE
+        data_type: FLOAT
+        description: Supplier score at time of delivery. Use DIM_SUPPLIER for current; this for PO-level historical.
+        synonyms:
+          - reliability score
+          - vendor score
+
+      - name: FREIGHT_COST
+        expr: FREIGHT_COST
+        data_type: FLOAT
+        description: PO freight cost. freight_cost_per_unit = freight_cost / received_qty. Include in landed COGS.
+        synonyms:
+          - shipping cost
+          - transport cost
+          - logistics cost
+
+    metrics:
+      - name: OTIF_RATE
+        expr: AVG(CASE WHEN OTIF_FLAG THEN 1 ELSE 0 END) * 100
+        description: On-Time-In-Full delivery rate %. Industry target >= 85%.
+        synonyms:
+          - otif
+          - on time in full rate
+          - delivery performance
+
+      - name: AVG_FILL_RATE
+        expr: AVG(FILL_RATE_PCT)
+        description: Average PO fill rate. Target >= 95%.
+        synonyms:
+          - fill rate
+          - order completeness
+
+      - name: AVG_LEAD_TIME
+        expr: AVG(LEAD_TIME_DAYS)
+        description: Average realized lead time in days.
+        synonyms:
+          - average lead time
+          - mean delivery time
+
+      - name: TOTAL_FREIGHT_COST
+        expr: SUM(FREIGHT_COST)
+        description: Total freight/shipping costs.
+        synonyms:
+          - shipping costs
+          - logistics spend
+          - transport cost
+
+  # ---------------------------------------------------------------------------
+  # FACT_RECOMMENDATIONS — AI Prescriptive Actions (5 rows)
+  # ---------------------------------------------------------------------------
+  - name: FACT_RECOMMENDATIONS
+    description: >
+      Prescriptive AI recommendations: 5 active actions (one per demand scenario).
+      Each includes detected issue, recommended action, projected financial impact,
+      confidence score, urgency, and guardrail compliance status. Route by persona_owner.
+    base_table:
+      database: DEMANDSENSING_AI
+      schema: DEMANDSENSING_SCHEMA
+      table: FACT_RECOMMENDATIONS
+    primary_key:
+      columns:
+        - RECOMMENDATION_ID
+
+    time_dimensions:
+      - name: AS_OF_DATE
+        expr: AS_OF_DATE
+        data_type: DATE
+        description: Recommendation generation date. response_time = status_date - as_of_date.
+        synonyms:
+          - recommendation date
+          - generated date
+
+    dimensions:
+      - name: RECOMMENDATION_ID
+        expr: RECOMMENDATION_ID
+        data_type: VARCHAR
+        unique: true
+        description: Unique recommendation ID. Use for workflow status tracking and approval audit.
+        synonyms:
+          - recommendation
+          - rec id
+        sample_values:
+          - REC-0001
+
+      - name: SCENARIO_ID
+        expr: SCENARIO_ID
+        data_type: VARCHAR
+        description: Triggering scenario. Join to FACT_DEMAND_DAILY on scenario_id for impacted demand rows.
+        synonyms:
+          - scenario
+          - trigger scenario
+
+      - name: DEPARTMENT
+        expr: DEPARTMENT
+        data_type: VARCHAR
+        description: Target department. Route to correct buyer/category manager.
+        synonyms:
+          - dept
+          - division
+
+      - name: REGION
+        expr: REGION
+        data_type: VARCHAR
+        description: Target region(s). Filter for localised recommendations.
+        synonyms:
+          - target region
+
+      - name: PERSONA_OWNER
+        expr: PERSONA_OWNER
+        data_type: VARCHAR
+        description: Persona owning the action. Critical for persona-aware recommendation routing to relevant dashboards.
+        synonyms:
+          - owner
+          - assigned to
+          - responsible person
+
+      - name: CATEGORY_L3
+        expr: CATEGORY_L3
+        data_type: VARCHAR
+        description: Target sub-category. Use with department for two-level action scoping.
+        synonyms:
+          - category
+          - segment
+
+      - name: ISSUE_SUMMARY
+        expr: ISSUE_SUMMARY
+        data_type: VARCHAR
+        description: Detected demand issue. Surface verbatim in recommendation cards for AI-augmented decision support.
+        synonyms:
+          - issue
+          - problem statement
+          - alert
+
+      - name: RECOMMENDED_ACTION
+        expr: RECOMMENDED_ACTION
+        data_type: VARCHAR
+        description: Prescriptive action text. Highest-value field — persona-specific and actionable.
+        synonyms:
+          - action
+          - recommendation
+          - suggested action
+
+      - name: ACTION_TYPE
+        expr: ACTION_TYPE
+        data_type: VARCHAR
+        description: Action category. Segment counts by action_type for operational analytics.
+        synonyms:
+          - action category
+          - response type
+        sample_values:
+          - Capture upside
+          - Mitigate downside
+        is_enum: true
+
+      - name: URGENCY
+        expr: URGENCY
+        data_type: VARCHAR
+        description: Urgency level. Filter High urgency for real-time alerts to Buyers and Category Managers.
+        synonyms:
+          - priority
+          - urgency level
+        sample_values:
+          - High
+          - Medium
+        is_enum: true
+
+      - name: GUARDRAIL_STATUS
+        expr: GUARDRAIL_STATUS
+        data_type: VARCHAR
+        description: Guardrail compliance. 'Blocked' = immediate human escalation. 'PASS' = can auto-action if no approval needed.
+        synonyms:
+          - compliance status
+          - guardrail check
+        sample_values:
+          - PASS
+          - Blocked
+
+      - name: REQUIRES_APPROVAL_FLAG
+        expr: REQUIRES_APPROVAL_FLAG
+        data_type: BOOLEAN
+        description: TRUE = human review required before execution. Core AI governance flag per guardrail GR-008.
+        synonyms:
+          - needs approval
+          - human review required
+
+      - name: STATUS
+        expr: STATUS
+        data_type: VARCHAR
+        description: Workflow status. Track transitions (Proposed -> Approved -> Executed). Measure time-to-action.
+        synonyms:
+          - workflow status
+          - recommendation status
+        sample_values:
+          - Proposed
+          - Approved
+          - Executed
+          - Rejected
+
+    facts:
+      - name: MEASURED_DEVIATION_PCT
+        expr: MEASURED_DEVIATION_PCT
+        data_type: FLOAT
+        description: Demand deviation that triggered the recommendation. Rank by ABS(measured_deviation_pct) for prioritisation.
+        synonyms:
+          - deviation
+          - demand gap
+
+      - name: PROJECTED_REVENUE_IMPACT_USD
+        expr: PROJECTED_REVENUE_IMPACT_USD
+        data_type: FLOAT
+        description: Projected revenue impact in USD. SUM = total portfolio opportunity/risk. Show prominently in dashboards.
+        synonyms:
+          - revenue impact
+          - financial impact
+          - dollar impact
+
+      - name: PROJECTED_UNITS_UPLIFT
+        expr: PROJECTED_UNITS_UPLIFT
+        data_type: FLOAT
+        description: Projected unit uplift. projected_units_uplift x avg_selling_price ≈ projected_revenue_impact_usd.
+        synonyms:
+          - units uplift
+          - volume impact
+
+      - name: CONFIDENCE_SCORE
+        expr: CONFIDENCE_SCORE
+        data_type: FLOAT
+        description: Model confidence (0-1). Score < 0.6 triggers suppression per guardrail GR-008.
+        synonyms:
+          - confidence
+          - model confidence
+
+    metrics:
+      - name: PROJECTED_TOTAL_REVENUE_IMPACT
+        expr: SUM(PROJECTED_REVENUE_IMPACT_USD)
+        description: Total projected revenue impact of all AI recommendations (portfolio opportunity).
+        synonyms:
+          - recommendation value
+          - ai impact
+          - total opportunity
+
+
+# =============================================================================
+# RELATIONSHIPS (Join Paths)
+# =============================================================================
+relationships:
+
+  - name: FACT_DEMAND_DAILY_to_DIM_PRODUCT
+    left_table: FACT_DEMAND_DAILY
+    right_table: DIM_PRODUCT
+    relationship_columns:
+      - left_column: SKU_ID
+        right_column: SKU_ID
+
+  - name: FACT_DEMAND_DAILY_to_DIM_STORE
+    left_table: FACT_DEMAND_DAILY
+    right_table: DIM_STORE
+    relationship_columns:
+      - left_column: STORE_ID
+        right_column: STORE_ID
+
+  - name: FACT_DEMAND_DAILY_to_FACT_PROMOTIONS
+    left_table: FACT_DEMAND_DAILY
+    right_table: FACT_PROMOTIONS
+    relationship_columns:
+      - left_column: PROMO_ID
+        right_column: PROMO_ID
+
+  - name: FACT_FORECAST_to_DIM_PRODUCT
+    left_table: FACT_FORECAST
+    right_table: DIM_PRODUCT
+    relationship_columns:
+      - left_column: SKU_ID
+        right_column: SKU_ID
+
+  - name: FACT_SUPPLY_CHAIN_to_DIM_PRODUCT
+    left_table: FACT_SUPPLY_CHAIN
+    right_table: DIM_PRODUCT
+    relationship_columns:
+      - left_column: SKU_ID
+        right_column: SKU_ID
+
+  - name: FACT_SUPPLY_CHAIN_to_DIM_SUPPLIER
+    left_table: FACT_SUPPLY_CHAIN
+    right_table: DIM_SUPPLIER
+    relationship_columns:
+      - left_column: SUPPLIER_ID
+        right_column: SUPPLIER_ID
+
+  - name: FACT_PROMOTIONS_to_DIM_PRODUCT
+    left_table: FACT_PROMOTIONS
+    right_table: DIM_PRODUCT
+    relationship_columns:
+      - left_column: SKU_ID
+        right_column: SKU_ID
+
+  - name: FACT_PROMOTIONS_to_DIM_STORE
+    left_table: FACT_PROMOTIONS
+    right_table: DIM_STORE
+    relationship_columns:
+      - left_column: STORE_ID
+        right_column: STORE_ID
+
+
+# =============================================================================
+# VERIFIED QUERIES (Grounding examples for Cortex Analyst)
+# =============================================================================
+verified_queries:
+
+  - name: verified_query_01
+
+    question: What are total net sales by department for the current fiscal year?
+    sql: |
+      SELECT DEPARTMENT, SUM(NET_SALES_AMT) AS total_net_sales
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY
+      WHERE FISCAL_YEAR = 2026 AND SCENARIO_ID IS NULL
+      GROUP BY DEPARTMENT
+      ORDER BY total_net_sales DESC
+
+  - name: verified_query_02
+
+    question: Which SKUs had the most stockout days last month?
+    sql: |
+      SELECT f.SKU_ID, p.PRODUCT_NAME, p.CATEGORY_L3,
+             COUNT(*) AS stockout_days
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY f
+      JOIN DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_PRODUCT p ON f.SKU_ID = p.SKU_ID
+      WHERE f.STOCKOUT_FLAG = TRUE
+        AND f.TRANSACTION_DATE >= DATEADD('month', -1, CURRENT_DATE())
+        AND f.SCENARIO_ID IS NULL
+      GROUP BY f.SKU_ID, p.PRODUCT_NAME, p.CATEGORY_L3
+      ORDER BY stockout_days DESC
+      LIMIT 20
+
+  - name: verified_query_03
+
+    question: What is the forecast accuracy (MAPE) by region?
+    sql: |
+      SELECT REGION, AVG(ABS_PCT_ERROR) AS mape
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_FORECAST
+      WHERE FORECAST_TYPE = 'actuals_vs_forecast'
+        AND FISCAL_YEAR = 2026
+      GROUP BY REGION
+      ORDER BY mape ASC
+
+  - name: verified_query_04
+
+    question: Show me the top 10 promotions by ROI
+    sql: |
+      SELECT fp.PROMO_ID, fp.PROMO_NAME, fp.PROMO_TYPE, fp.PROMO_ROI,
+             fp.PROMO_LIFT_PCT, fp.PROMO_UNITS_INCREMENTAL,
+             p.PRODUCT_NAME, p.CATEGORY_L3
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_PROMOTIONS fp
+      JOIN DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_PRODUCT p ON fp.SKU_ID = p.SKU_ID
+      ORDER BY fp.PROMO_ROI DESC
+      LIMIT 10
+
+  - name: verified_query_05
+
+    question: What is the OTIF rate by supplier?
+    sql: |
+      SELECT s.SUPPLIER_NAME, s.SUPPLIER_COUNTRY,
+             COUNT(*) AS total_pos,
+             AVG(CASE WHEN sc.OTIF_FLAG THEN 1 ELSE 0 END) * 100 AS otif_rate_pct
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_SUPPLY_CHAIN sc
+      JOIN DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_SUPPLIER s ON sc.SUPPLIER_ID = s.SUPPLIER_ID
+      GROUP BY s.SUPPLIER_NAME, s.SUPPLIER_COUNTRY
+      ORDER BY otif_rate_pct ASC
+
+  - name: verified_query_06
+
+    question: What are the biggest demand drivers this week?
+    sql: |
+      SELECT
+        AVG(DRIVER_WEATHER_PP) AS avg_weather_driver,
+        AVG(DRIVER_PROMO_PP) AS avg_promo_driver,
+        AVG(DRIVER_COMPETITOR_PP) AS avg_competitor_driver,
+        AVG(DRIVER_DIGITAL_PP) AS avg_digital_driver,
+        AVG(DRIVER_RESIDUAL_PP) AS avg_residual_driver
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY
+      WHERE TRANSACTION_DATE >= DATEADD('day', -7, CURRENT_DATE())
+        AND SCENARIO_ID IS NULL
+
+  - name: verified_query_07
+
+    question: Which categories have the highest lost sales revenue from stockouts?
+    sql: |
+      SELECT CATEGORY_L3,
+             SUM(LOST_SALES_UNITS_EST) AS total_lost_units,
+             SUM(LOST_SALES_UNITS_EST * REGULAR_PRICE) AS lost_revenue_est
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY
+      WHERE STOCKOUT_FLAG = TRUE
+        AND FISCAL_YEAR = 2026
+        AND SCENARIO_ID IS NULL
+      GROUP BY CATEGORY_L3
+      ORDER BY lost_revenue_est DESC
+      LIMIT 10
+
+  - name: verified_query_08
+
+    question: Show all active AI recommendations and their projected impact
+    sql: |
+      SELECT RECOMMENDATION_ID, SCENARIO_ID, DEPARTMENT, REGION,
+             PERSONA_OWNER, ISSUE_SUMMARY, RECOMMENDED_ACTION,
+             ACTION_TYPE, PROJECTED_REVENUE_IMPACT_USD,
+             PROJECTED_UNITS_UPLIFT, CONFIDENCE_SCORE, URGENCY,
+             GUARDRAIL_STATUS, STATUS
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_RECOMMENDATIONS
+      ORDER BY ABS(PROJECTED_REVENUE_IMPACT_USD) DESC
+
+  - name: verified_query_09
+
+    question: What is the gross margin trend by month for Fresh & Grocery?
+    sql: |
+      SELECT FISCAL_MONTH,
+             SUM(NET_SALES_AMT) AS net_sales,
+             SUM(GROSS_MARGIN_AMT) AS gross_margin,
+             (SUM(GROSS_MARGIN_AMT) / NULLIF(SUM(NET_SALES_AMT), 0)) * 100 AS gm_pct
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY
+      WHERE DEPARTMENT = 'Fresh & Grocery'
+        AND SCENARIO_ID IS NULL
+      GROUP BY FISCAL_MONTH
+      ORDER BY FISCAL_MONTH
+
+  - name: verified_query_10
+
+    question: What is the average days of supply by store tier and department?
+    sql: |
+      SELECT s.STORE_TIER, f.DEPARTMENT,
+             AVG(f.DAYS_OF_SUPPLY) AS avg_dos
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY f
+      JOIN DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_STORE s ON f.STORE_ID = s.STORE_ID
+      WHERE f.TRANSACTION_DATE = (SELECT MAX(TRANSACTION_DATE) FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY)
+        AND f.SCENARIO_ID IS NULL
+      GROUP BY s.STORE_TIER, f.DEPARTMENT
+      ORDER BY s.STORE_TIER, f.DEPARTMENT
+
+  - name: verified_query_11
+
+    question: How does the viral speaker spike scenario compare to baseline?
+    sql: |
+      SELECT SCENARIO_ID,
+             SUM(UNITS_SOLD) AS total_units,
+             SUM(NET_SALES_AMT) AS total_revenue,
+             SUM(LOST_SALES_UNITS_EST) AS lost_units
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_DEMAND_DAILY
+      WHERE (SCENARIO_ID = 'viral_speaker_spike' OR SCENARIO_ID IS NULL)
+        AND DEPARTMENT = 'Consumer Electronics'
+        AND TRANSACTION_DATE >= '2026-07-01'
+      GROUP BY SCENARIO_ID
+
+  - name: verified_query_12
+
+    question: What are the guardrail rules and their thresholds?
+    sql: |
+      SELECT GUARDRAIL_ID, GUARDRAIL_NAME, SCOPE_DEPARTMENT,
+             METRIC, OPERATOR, THRESHOLD_VALUE,
+             ACTION_ON_BREACH, SEVERITY, ACTIVE_FLAG
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_GUARDRAILS
+      WHERE ACTIVE_FLAG = TRUE
+      ORDER BY SEVERITY DESC, GUARDRAIL_ID
+
+  - name: verified_query_13
+
+    question: What are the macro-economic conditions across regions for the latest month?
+    sql: |
+      SELECT REGION, MONTH_START, CPI_INDEX,
+             UNEMPLOYMENT_RATE_PCT, CONSUMER_CONFIDENCE_INDEX
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_EXTERNAL_MACRO
+      WHERE MONTH_START = (SELECT MAX(MONTH_START) FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_EXTERNAL_MACRO)
+      ORDER BY REGION
+
+  - name: verified_query_14
+
+    question: Which suppliers have the highest lead time variance?
+    sql: |
+      SELECT s.SUPPLIER_NAME, s.SUPPLIER_COUNTRY,
+             AVG(sc.LEAD_TIME_VARIANCE_DAYS) AS avg_lt_variance,
+             AVG(sc.LEAD_TIME_DAYS) AS avg_lead_time,
+             AVG(sc.FILL_RATE_PCT) AS avg_fill_rate
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_SUPPLY_CHAIN sc
+      JOIN DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DIM_SUPPLIER s ON sc.SUPPLIER_ID = s.SUPPLIER_ID
+      GROUP BY s.SUPPLIER_NAME, s.SUPPLIER_COUNTRY
+      ORDER BY avg_lt_variance DESC
+
+  - name: verified_query_15
+
+    question: What is the 13-week forward forecast for the West Coast region?
+    sql: |
+      SELECT FISCAL_WEEK, WEEK_START_DATE, HORIZON_WEEK,
+             SUM(FORECAST_UNITS) AS total_forecast_units,
+             SUM(FORECAST_LOWER_UNITS) AS forecast_lower,
+             SUM(FORECAST_UPPER_UNITS) AS forecast_upper,
+             SUM(CONSENSUS_FORECAST_UNITS) AS consensus_units
+      FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FACT_FORECAST
+      WHERE FORECAST_TYPE = 'forward_projection'
+        AND REGION = 'West Coast'
+      GROUP BY FISCAL_WEEK, WEEK_START_DATE, HORIZON_WEEK
+      ORDER BY HORIZON_WEEK
