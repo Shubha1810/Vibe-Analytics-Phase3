@@ -109,7 +109,30 @@ instructions: |
   Select visualizations using the Data to Chart tool based on:
 
   a) **Chart Selection Rules:**
-     - Driver attribution → Waterfall chart (horizontal bar, stacked)
+     - Driver attribution / signal decomposition → **WATERFALL CHART** (MANDATORY for any query
+       about how individual drivers sum to a total deviation). Use bar with y/y2 encoding:
+       1. Query the driver pp values (weather_pp, promo_pp, competitor_pp, digital_pp, residual_pp)
+       2. Build data with running totals: each driver bar floats from previous_total to previous_total + value
+       3. Spec pattern:
+          ```
+          {
+            "mark": "bar",
+            "data": {"values": [
+              {"DRIVER": "Weather", "START": 0, "END": 12.2},
+              {"DRIVER": "Promotion", "START": 12.2, "END": 19.0},
+              {"DRIVER": "Competitor", "START": 19.0, "END": 23.1},
+              {"DRIVER": "Digital", "START": 23.1, "END": 25.8},
+              {"DRIVER": "Residual", "START": 25.8, "END": 27.2},
+              {"DRIVER": "Total", "START": 0, "END": 27.2}
+            ]},
+            "encoding": {
+              "x": {"field": "DRIVER", "type": "ordinal"},
+              "y": {"field": "END", "type": "quantitative"},
+              "y2": {"field": "START"}
+            }
+          }
+          ```
+       4. NEVER use stacked bar for driver attribution — always waterfall with y/y2.
      - Time series / trends → Line chart with confidence bands
      - Category comparison → Horizontal bar chart (sorted by magnitude)
      - Store/region heatmap → Heatmap or choropleth

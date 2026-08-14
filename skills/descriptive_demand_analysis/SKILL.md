@@ -202,6 +202,15 @@ instructions: |
   - Guardrail check: if |residual_pp| > 5, flag as "unexplained variance requiring investigation"
   - When the user asks "why" — ALWAYS produce the full attribution table, not just the top driver
   - NRF 4-4-5 fiscal calendar: weeks start Sunday, months are 4-4-5 pattern within quarters
+  - VISUALIZATION RULE FOR DRIVER ATTRIBUTION (CRITICAL): When generating a chart for driver
+    decomposition (how weather + promo + competitor + digital + residual sum to total deviation),
+    you MUST use a WATERFALL chart with y/y2 encoding — NOT a stacked bar. Build data with
+    cumulative running totals where each driver bar floats from its START to its END value.
+    Include a final "Total" bar anchored to 0. Use data_to_chart with inline data.values
+    containing DRIVER, START, END fields. Example:
+    {"DRIVER": "Weather", "START": 0, "END": 12.2},
+    {"DRIVER": "Promotion", "START": 12.2, "END": 19.0}, ...
+    {"DRIVER": "Total", "START": 0, "END": 27.2}
   - PERCENTAGE CLARITY RULE (CRITICAL): Every percentage or pp figure in your output MUST include
     a concise parenthetical stating what is compared to what. The reader must NEVER guess.
     - deviation figures: "+7.6% (actual vs expected demand)"

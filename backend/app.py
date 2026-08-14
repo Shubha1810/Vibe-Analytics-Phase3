@@ -465,6 +465,82 @@ def api_kpis():
     return jsonify([])
 
 
+def _convert_plotly_to_d3_spec(plotly_data, columns_used, title, chart_type):
+    """Convert Plotly JSON from PLOTLY_DEMANDSENSING into a D3-compatible spec.
+
+    Extracts data from Plotly traces and builds a spec that D3Chart can render.
+    Preserves the chart_type the agent chose (bar, stacked_bar, line, etc.).
+    """
+    try:
+        traces = plotly_data.get("data", [])
+        if not traces:
+            return None
+
+        import base64
+        import struct
+
+        def decode_y(y_data):
+            if isinstance(y_data, dict) and "bdata" in y_data:
+                bdata = base64.b64decode(y_data["bdata"])
+                return list(struct.unpack(f'<{len(bdata)//8}d', bdata))
+            elif isinstance(y_data, list):
+                return [float(v) if v is not None else 0 for v in y_data]
+            return []
+
+        # Flatten traces into rows: each trace is a series (color group)
+        rows = []
+        x_field = (columns_used.get("x") or "CATEGORY").upper()
+        y_field = (columns_used.get("y") or "VALUE").upper()
+        color_field = (columns_used.get("color") or "SERIES").upper()
+
+        for trace in traces:
+            series_name = trace.get("name", "Unknown")
+            x_values = trace.get("x", [])
+            y_values = decode_y(trace.get("y", []))
+            for i, x_val in enumerate(x_values):
+                y_val = y_values[i] if i < len(y_values) else 0
+                rows.append({
+                    x_field: str(x_val),
+                    y_field: round(y_val, 2),
+                    color_field: series_name,
+                })
+
+        if not rows:
+            return None
+
+        # Map chart_type to D3 mark type
+        mark_map = {
+            "stacked_bar": "bar",
+            "grouped_bar": "bar",
+            "bar": "bar",
+            "line": "line",
+            "scatter": "point",
+            "area": "area",
+        }
+        mark = mark_map.get(chart_type, "bar")
+
+        # Build spec
+        spec = {
+            "mark": mark,
+            "title": title or "",
+            "data": {"values": rows},
+            "encoding": {
+                "x": {"field": x_field, "type": "nominal"},
+                "y": {"field": y_field, "type": "quantitative"},
+                "color": {"field": color_field, "type": "nominal"},
+            },
+        }
+
+        # For stacked bars, add stack indicator
+        if chart_type == "stacked_bar":
+            spec["encoding"]["y"]["stack"] = "zero"
+
+        return spec
+    except Exception as e:
+        print(f"[Plotly→D3 Conversion Error] {e}")
+        return None
+
+
 @app.route("/api/agent/query", methods=["POST"])
 def api_agent_query():
     """
@@ -551,6 +627,7 @@ def api_agent_query():
         text_parts = []
         sql_parts = []
         vega_spec = None
+        plotly_fallback = None
         result_set = None
         suggested_queries = []
         tools_called = []
@@ -652,6 +729,36 @@ def api_agent_query():
                                 except (ValueError, TypeError):
                                     pass
 
+                # Handle PLOTLY_DEMANDSENSING tool results — convert to D3 format
+                elif "plotly" in tool_name.lower() or "PLOTLY" in tool_name:
+                    content_blocks = tool_result_data.get("content", [])
+                    for block in content_blocks:
+                        if isinstance(block, dict) and block.get("type") == "json":
+                            json_data = block.get("json", {})
+                            result_str = json_data.get("result", "")
+                            if result_str and isinstance(result_str, str):
+                                try:
+                                    result_parsed = _json.loads(result_str)
+                                    plotly_data = result_parsed.get("plotly_json")
+                                    chart_type = result_parsed.get("chart_type", "bar")
+                                    columns_used = result_parsed.get("columns_used", {})
+
+                                    # Convert to D3-compatible spec
+                                    if plotly_data and not vega_spec:
+                                        vega_spec = _convert_plotly_to_d3_spec(
+                                            plotly_data, columns_used,
+                                            result_parsed.get("title", ""),
+                                            chart_type
+                                        )
+                                    # Fallback: keep plotly_json if conversion fails
+                                    if not vega_spec and plotly_data:
+                                        plotly_fallback = plotly_data
+
+                                    if result_parsed.get("sql_used"):
+                                        sql_parts.append(result_parsed["sql_used"])
+                                except (ValueError, TypeError):
+                                    pass
+
                 # Legacy: handle other tool results
                 else:
                     content_data = tool_result_data.get("content", "")
@@ -659,7 +766,7 @@ def api_agent_query():
                         try:
                             parsed = _json.loads(content_data)
                             if "plotly_json" in parsed:
-                                vega_spec = parsed["plotly_json"]
+                                plotly_fallback = parsed["plotly_json"]
                             if "sql_used" in parsed:
                                 sql_parts.append(parsed["sql_used"])
                         except (ValueError, TypeError):
@@ -732,6 +839,7 @@ def api_agent_query():
             "sql": sql_parts if sql_parts else None,
             "result_set": result_set,
             "vega_spec": vega_spec,
+            "plotly_json": plotly_fallback,
             "suggested_queries": suggested_queries if suggested_queries else None,
             "planning": planning,
         })

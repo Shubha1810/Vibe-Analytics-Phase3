@@ -9,7 +9,7 @@ import FeedbackBar from "./FeedbackBar";
 import SuggestedQuestions from "./SuggestedQuestions";
 import DataTable from "@/components/common/DataTable";
 import AgentChart from "@/components/charts/AgentChart";
-import VegaChart from "@/components/charts/VegaChart";
+import D3Chart from "@/components/charts/D3Chart";
 import { PlotlyChart } from "@/components/charts/PlotlyChart";
 
 function escHtml(s: string): string {
@@ -187,10 +187,10 @@ export default function FinalAnswer({ data, showThinking = true, query = "", per
         </div>
       )}
 
-      {data.plotly_json ? (
+      {data.vega_spec ? (
+        <D3Chart spec={data.vega_spec} />
+      ) : data.plotly_json ? (
         <PlotlyChart spec={data.plotly_json} />
-      ) : data.vega_spec ? (
-        <VegaChart spec={data.vega_spec} />
       ) : (
         rs && rs.columns.length > 0 && rs.rows.length > 0 && (
           <AgentChart
