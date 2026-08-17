@@ -45,8 +45,12 @@ export interface KPI {
 
 export interface PlanningData {
   intent?: string;
+  confidence?: number;
+  recommended_chart?: string;
+  viz_rationale?: string;
   sub_tasks?: string[];
   kpis?: string[];
+  entities?: Record<string, unknown>;
   visualizations?: string[];
   tools_called?: { name: string; id?: string }[];
   sql_count?: number;

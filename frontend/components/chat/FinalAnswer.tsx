@@ -187,10 +187,10 @@ export default function FinalAnswer({ data, showThinking = true, query = "", per
         </div>
       )}
 
-      {data.vega_spec ? (
-        <D3Chart spec={data.vega_spec} />
-      ) : data.plotly_json ? (
-        <PlotlyChart spec={data.plotly_json} />
+            {data.plotly_json ? (
+              <PlotlyChart spec={data.plotly_json} />
+            ) : data.vega_spec ? (
+              <D3Chart spec={data.vega_spec} />
       ) : (
         rs && rs.columns.length > 0 && rs.rows.length > 0 && (
           <AgentChart

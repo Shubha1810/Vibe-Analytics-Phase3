@@ -87,10 +87,16 @@ export default function ThinkingCard({
   const getStepValue = (key: string): string | null => {
     if (!planning) return null;
     switch (key) {
-      case "intent":         return planning.intent || null;
-      case "sub_tasks":      return planning.sub_tasks?.join(", ") || null;
+      case "intent":         return planning.intent ? `${planning.intent}${planning.confidence ? ` (${Math.round(planning.confidence * 100)}% confidence)` : ""}` : null;
+      case "sub_tasks":      return planning.sub_tasks?.join(" → ") || null;
       case "kpis":           return planning.kpis?.join(", ") || null;
-      case "visualizations": return planning.visualizations?.join(", ") || null;
+      case "visualizations": {
+        const parts: string[] = [];
+        if (planning.recommended_chart) parts.push(`Chart: ${planning.recommended_chart}`);
+        if (planning.viz_rationale) parts.push(planning.viz_rationale);
+        if (!parts.length && planning.visualizations) return planning.visualizations.join(", ");
+        return parts.join(" — ") || null;
+      }
       case "feedback":       return "Incorporating your feedback and re-analyzing...";
       default:               return null;
     }

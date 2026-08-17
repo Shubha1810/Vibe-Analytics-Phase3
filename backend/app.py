@@ -631,6 +631,7 @@ def api_agent_query():
         result_set = None
         suggested_queries = []
         tools_called = []
+        classified_intent = None  # Will hold real classify_demand_sensing_intent result
 
         content_items = resp.get("content", [])
 
@@ -716,6 +717,21 @@ def api_agent_query():
                                     "rows": rows,
                                 }
 
+                # Extract classify_demand_sensing_intent result for real planning
+                elif tool_name in ("classify_demand_sensing_intent", "classify_intent"):
+                    content_blocks = tool_result_data.get("content", [])
+                    for block in content_blocks:
+                        if isinstance(block, dict) and block.get("type") == "json":
+                            json_data = block.get("json", {})
+                            result_str = json_data.get("result", "")
+                            if result_str and isinstance(result_str, str):
+                                try:
+                                    classified_intent = _json.loads(result_str)
+                                except (ValueError, TypeError):
+                                    pass
+                            elif isinstance(json_data, dict) and json_data.get("intent"):
+                                classified_intent = json_data
+
                 # Extract chart from data_to_chart tool results
                 elif tool_name == "data_to_chart":
                     content_blocks = tool_result_data.get("content", [])
@@ -729,7 +745,7 @@ def api_agent_query():
                                 except (ValueError, TypeError):
                                     pass
 
-                # Handle PLOTLY_DEMANDSENSING tool results — convert to D3 format
+                # Handle PLOTLY_DEMANDSENSING tool results — pass plotly_json directly to frontend
                 elif "plotly" in tool_name.lower() or "PLOTLY" in tool_name:
                     content_blocks = tool_result_data.get("content", [])
                     for block in content_blocks:
@@ -740,19 +756,18 @@ def api_agent_query():
                                 try:
                                     result_parsed = _json.loads(result_str)
                                     plotly_data = result_parsed.get("plotly_json")
-                                    chart_type = result_parsed.get("chart_type", "bar")
-                                    columns_used = result_parsed.get("columns_used", {})
 
-                                    # Convert to D3-compatible spec
+                                    # Pass plotly figure directly — no D3 conversion
+                                    if plotly_data:
+                                        plotly_fallback = plotly_data
+
+                                    # Also try D3 conversion as secondary path
                                     if plotly_data and not vega_spec:
                                         vega_spec = _convert_plotly_to_d3_spec(
-                                            plotly_data, columns_used,
+                                            plotly_data, result_parsed.get("columns_used", {}),
                                             result_parsed.get("title", ""),
-                                            chart_type
+                                            result_parsed.get("chart_type", "bar")
                                         )
-                                    # Fallback: keep plotly_json if conversion fails
-                                    if not vega_spec and plotly_data:
-                                        plotly_fallback = plotly_data
 
                                     if result_parsed.get("sql_used"):
                                         sql_parts.append(result_parsed["sql_used"])
@@ -809,15 +824,34 @@ def api_agent_query():
         # Also strip trailing horizontal rules left behind
         final_text = re.sub(r'\n---\s*$', '', final_text).rstrip()
 
-        # Build planning data (required by ThinkingCard to trigger onAllRevealed)
-        planning = {
-            "intent": "DEMAND_ANALYSIS",
-            "sub_tasks": ["Query demand data", "Analyze patterns", "Generate insights"],
-            "kpis": ["demand_deviation_pct", "forecast_accuracy", "days_of_supply"],
-            "visualizations": ["vega_lite_chart"] if vega_spec else (["data_table"] if result_set else []),
-            "tools_called": tools_called if tools_called else [{"name": "DemandSensingAnalyst"}],
-            "sql_count": len(sql_parts),
-        }
+        # Build planning data from real classify_demand_sensing_intent result
+        if classified_intent:
+            planning = {
+                "intent": classified_intent.get("intent", "DATA_QUERY"),
+                "confidence": classified_intent.get("confidence", 0.7),
+                "recommended_chart": classified_intent.get("recommended_chart", "bar"),
+                "viz_rationale": classified_intent.get("viz_rationale", ""),
+                "sub_tasks": classified_intent.get("sub_tasks", []),
+                "kpis": classified_intent.get("kpis", []),
+                "entities": classified_intent.get("entities", {}),
+                "visualizations": ["vega_lite_chart"] if vega_spec else (["data_table"] if result_set else []),
+                "tools_called": tools_called if tools_called else [{"name": "DemandSensingAnalyst"}],
+                "sql_count": len(sql_parts),
+            }
+        else:
+            # Fallback if classify was not called (shouldn't happen normally)
+            planning = {
+                "intent": "DATA_QUERY",
+                "confidence": 0.5,
+                "recommended_chart": "bar",
+                "viz_rationale": "Default visualization",
+                "sub_tasks": ["Query data", "Analyze results", "Generate insights"],
+                "kpis": ["demand_deviation_pct", "stockout_rate", "days_of_supply"],
+                "entities": {},
+                "visualizations": ["vega_lite_chart"] if vega_spec else (["data_table"] if result_set else []),
+                "tools_called": tools_called if tools_called else [{"name": "DemandSensingAnalyst"}],
+                "sql_count": len(sql_parts),
+            }
 
         # Use agent's suggested queries if available, otherwise generate defaults
         if not suggested_queries:
