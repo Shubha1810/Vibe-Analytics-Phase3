@@ -1,32 +1,87 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { api } from "@/lib/api";
+import { api, type FeedbackPayload, type AgentResponse } from "@/lib/api";
 import { useApp } from "@/context/AppContext";
+
+const POSITIVE_REASONS = [
+  "Accurate & helpful",
+  "Good visualization",
+  "Correct data",
+  "Fast response",
+  "Clear explanation",
+];
+
+const NEGATIVE_REASONS = [
+  "Inaccurate data",
+  "Didn't answer my question",
+  "Incomplete response",
+  "Slow response",
+  "Poor visualization",
+];
 
 interface Props {
   query: string;
   responseText: string;
+  agentData?: AgentResponse;
+  sessionId?: string;
+  conversationTurn?: number;
   onLike?: () => void;
 }
 
-export default function FeedbackBar({ query, responseText, onLike }: Props) {
+export default function FeedbackBar({ query, responseText, agentData, sessionId, conversationTurn, onLike }: Props) {
   const { persona } = useApp();
   const [feedback, setFeedback] = useState<"thumbs_up" | "thumbs_down" | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [comment, setComment] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const shareRef = useRef<HTMLDivElement>(null);
 
-  const handleFeedback = async (type: "thumbs_up" | "thumbs_down") => {
+  const handleThumbClick = (type: "thumbs_up" | "thumbs_down") => {
     setFeedback(type);
+    setSelectedReason(null);
+    setComment("");
+    setShowForm(true);
     if (type === "thumbs_up" && onLike) {
       onLike();
     }
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!feedback) return;
+
+    const payload: FeedbackPayload = {
+      query,
+      response_text: responseText,
+      feedback_type: feedback,
+      persona,
+      feedback_reason: selectedReason || undefined,
+      feedback_comment: comment.trim() || undefined,
+      session_id: sessionId,
+      conversation_turn: conversationTurn,
+      detected_intent: agentData?.planning?.intent,
+      sub_tasks: agentData?.planning?.sub_tasks,
+      kpis_identified: agentData?.planning?.kpis,
+      tools_called: agentData?.planning?.tools_called,
+      sql_queries: agentData?.sql,
+      chart_type: agentData?.chart_config?.chart_type,
+      suggested_queries: agentData?.suggested_queries,
+      response_length: responseText.length,
+      result_row_count: agentData?.result_set?.rows?.length,
+      result_column_count: agentData?.result_set?.columns?.length,
+      confidence_score: agentData?.planning?.confidence,
+    };
+
     try {
-      await api.submitFeedback(query, responseText, type, persona);
+      await api.submitFeedback(payload);
     } catch (e) {
       console.error("Failed to submit feedback:", e);
     }
+    setSubmitted(true);
+    setShowForm(false);
   };
 
   const handleCopy = async () => {
@@ -77,61 +132,108 @@ export default function FeedbackBar({ query, responseText, onLike }: Props) {
     setShowShareMenu(false);
   };
 
+  const reasons = feedback === "thumbs_up" ? POSITIVE_REASONS : NEGATIVE_REASONS;
+
   return (
-    <div className="flex items-center gap-1 mt-3 pt-3 border-t border-[var(--border-color)]">
-      <button
-        onClick={() => handleFeedback("thumbs_up")}
-        disabled={feedback !== null}
-        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer border transition-all ${
-          feedback === "thumbs_up"
-            ? "bg-[var(--hex-accent)]/10 text-[var(--hex-accent)] border-[var(--hex-accent)]/30"
-            : "bg-transparent text-[var(--hex-text-muted)] border-transparent hover:bg-[var(--hex-surface-2)] hover:text-[var(--hex-accent)]"
-        } disabled:cursor-default`}
-      >
-        <span className="material-icons-outlined" style={{ fontSize: "14px" }}>thumb_up</span>
-        {feedback === "thumbs_up" && <span>Liked</span>}
-      </button>
-
-      <button
-        onClick={() => handleFeedback("thumbs_down")}
-        disabled={feedback !== null}
-        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer border transition-all ${
-          feedback === "thumbs_down"
-            ? "bg-[var(--hex-error)]/10 text-[var(--hex-error)] border-[var(--hex-error)]/30"
-            : "bg-transparent text-[var(--hex-text-muted)] border-transparent hover:bg-[var(--hex-surface-2)] hover:text-[var(--hex-error)]"
-        } disabled:cursor-default`}
-      >
-        <span className="material-icons-outlined" style={{ fontSize: "14px" }}>thumb_down</span>
-      </button>
-
-      <div className="relative" ref={shareRef}>
+    <div className="mt-3 pt-3 border-t border-[var(--border-color)]">
+      <div className="flex items-center gap-1">
         <button
-          onClick={() => setShowShareMenu(!showShareMenu)}
-          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer border border-transparent bg-transparent text-[var(--hex-text-muted)] hover:bg-[var(--hex-surface-2)] hover:text-[var(--hex-primary)] transition-all"
+          onClick={() => handleThumbClick("thumbs_up")}
+          disabled={submitted}
+          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer border transition-all ${
+            feedback === "thumbs_up"
+              ? "bg-[var(--hex-accent)]/10 text-[var(--hex-accent)] border-[var(--hex-accent)]/30"
+              : "bg-transparent text-[var(--hex-text-muted)] border-transparent hover:bg-[var(--hex-surface-2)] hover:text-[var(--hex-accent)]"
+          } disabled:cursor-default`}
         >
-          <span className="material-icons-outlined" style={{ fontSize: "14px" }}>share</span>
+          <span className="material-icons-outlined" style={{ fontSize: "14px" }}>thumb_up</span>
+          {feedback === "thumbs_up" && submitted && <span>Liked</span>}
         </button>
 
-        {showShareMenu && (
-          <div className="absolute bottom-full left-0 mb-1 bg-[var(--hex-surface-1)] rounded-lg border border-[var(--border-color)] py-1 min-w-[160px] animate-scale-in z-50"
-            style={{ boxShadow: "var(--shadow-md)" }}>
-            <button
-              onClick={handleCopy}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-[var(--hex-text)] hover:bg-[var(--hex-surface-hover)] cursor-pointer border-none bg-transparent text-left transition-colors"
-            >
-              <span className="material-icons-outlined" style={{ fontSize: "14px" }}>content_copy</span>
-              {copied ? "Copied!" : "Copy to clipboard"}
-            </button>
-            <button
-              onClick={handleDownloadPDF}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-[var(--hex-text)] hover:bg-[var(--hex-surface-hover)] cursor-pointer border-none bg-transparent text-left transition-colors"
-            >
-              <span className="material-icons-outlined" style={{ fontSize: "14px" }}>picture_as_pdf</span>
-              Download as PDF
-            </button>
-          </div>
+        <button
+          onClick={() => handleThumbClick("thumbs_down")}
+          disabled={submitted}
+          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer border transition-all ${
+            feedback === "thumbs_down"
+              ? "bg-[var(--hex-error)]/10 text-[var(--hex-error)] border-[var(--hex-error)]/30"
+              : "bg-transparent text-[var(--hex-text-muted)] border-transparent hover:bg-[var(--hex-surface-2)] hover:text-[var(--hex-error)]"
+          } disabled:cursor-default`}
+        >
+          <span className="material-icons-outlined" style={{ fontSize: "14px" }}>thumb_down</span>
+          {feedback === "thumbs_down" && submitted && <span>Disliked</span>}
+        </button>
+
+        <div className="relative" ref={shareRef}>
+          <button
+            onClick={() => setShowShareMenu(!showShareMenu)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium cursor-pointer border border-transparent bg-transparent text-[var(--hex-text-muted)] hover:bg-[var(--hex-surface-2)] hover:text-[var(--hex-primary)] transition-all"
+          >
+            <span className="material-icons-outlined" style={{ fontSize: "14px" }}>share</span>
+          </button>
+
+          {showShareMenu && (
+            <div className="absolute bottom-full left-0 mb-1 bg-[var(--hex-surface-1)] rounded-lg border border-[var(--border-color)] py-1 min-w-[160px] animate-scale-in z-50"
+              style={{ boxShadow: "var(--shadow-md)" }}>
+              <button
+                onClick={handleCopy}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-[var(--hex-text)] hover:bg-[var(--hex-surface-hover)] cursor-pointer border-none bg-transparent text-left transition-colors"
+              >
+                <span className="material-icons-outlined" style={{ fontSize: "14px" }}>content_copy</span>
+                {copied ? "Copied!" : "Copy to clipboard"}
+              </button>
+              <button
+                onClick={handleDownloadPDF}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-[var(--hex-text)] hover:bg-[var(--hex-surface-hover)] cursor-pointer border-none bg-transparent text-left transition-colors"
+              >
+                <span className="material-icons-outlined" style={{ fontSize: "14px" }}>picture_as_pdf</span>
+                Download as PDF
+              </button>
+            </div>
+          )}
+        </div>
+
+        {submitted && (
+          <span className="ml-2 text-[11px] text-[var(--hex-text-muted)]">Thank you for your feedback!</span>
         )}
       </div>
+
+      {showForm && !submitted && (
+        <div className="mt-3 p-3 rounded-lg bg-[var(--hex-surface-2)] border border-[var(--border-color)] animate-fade-in">
+          <p className="text-[11px] font-medium text-[var(--hex-text)] mb-2">
+            {feedback === "thumbs_up" ? "What did you like?" : "What could be improved?"}
+          </p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {reasons.map((reason) => (
+              <button
+                key={reason}
+                onClick={() => setSelectedReason(selectedReason === reason ? null : reason)}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-medium border transition-all cursor-pointer ${
+                  selectedReason === reason
+                    ? "bg-[var(--hex-accent)]/15 text-[var(--hex-accent)] border-[var(--hex-accent)]/40"
+                    : "bg-[var(--hex-surface-1)] text-[var(--hex-text-muted)] border-[var(--border-color)] hover:border-[var(--hex-accent)]/30"
+                }`}
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Additional comments (optional)"
+            rows={2}
+            className="w-full px-3 py-2 rounded-lg text-[11px] bg-[var(--hex-surface-1)] border border-[var(--border-color)] text-[var(--hex-text)] placeholder:text-[var(--hex-text-muted)] resize-none focus:outline-none focus:border-[var(--hex-accent)]/50"
+          />
+          <div className="flex justify-end mt-2">
+            <button
+              onClick={handleSubmitFeedback}
+              className="px-3 py-1.5 rounded-lg text-[11px] font-medium bg-[var(--hex-accent)] text-white hover:opacity-90 transition-opacity cursor-pointer border-none"
+            >
+              Submit Feedback
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

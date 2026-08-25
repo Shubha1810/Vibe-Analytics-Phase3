@@ -161,11 +161,13 @@ interface Props {
   query?: string;
   persona?: string;
   conversationHistory?: { role: string; content: string }[];
+  sessionId?: string;
+  conversationTurn?: number;
   onLike?: () => void;
   onSuggestionSelect?: (question: string) => void;
 }
 
-export default function FinalAnswer({ data, showThinking = true, query = "", persona = "", conversationHistory = [], onLike, onSuggestionSelect }: Props) {
+export default function FinalAnswer({ data, showThinking = true, query = "", persona = "", conversationHistory = [], sessionId, conversationTurn, onLike, onSuggestionSelect }: Props) {
   const [sqlExpanded, setSqlExpanded] = useState(false);
   const suggestions = (data.suggested_queries && data.suggested_queries.length > 0)
     ? data.suggested_queries.slice(0, 3)
@@ -242,7 +244,7 @@ export default function FinalAnswer({ data, showThinking = true, query = "", per
         </div>
       )}
 
-      <FeedbackBar query={query} responseText={data.text || ""} onLike={onLike} />
+      <FeedbackBar query={query} responseText={data.text || ""} agentData={data} sessionId={sessionId} conversationTurn={conversationTurn} onLike={onLike} />
 
       {onSuggestionSelect && suggestions.length > 0 && (
         <SuggestedQuestions suggestions={suggestions} onSelect={onSuggestionSelect} />

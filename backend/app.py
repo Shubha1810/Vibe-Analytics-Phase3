@@ -886,7 +886,91 @@ def api_agent_query():
 
 @app.route("/api/feedback", methods=["POST"])
 def api_feedback():
-    return jsonify({"success": True})
+    """Persist user feedback with full execution trace to Snowflake."""
+    try:
+        body = request.get_json(force=True)
+        feedback_type = body.get("feedback_type", "")
+        if feedback_type not in ("thumbs_up", "thumbs_down"):
+            return jsonify({"error": "feedback_type must be thumbs_up or thumbs_down"}), 400
+
+        import json as _json
+
+        session_id = str(body.get("session_id") or "")[:100]
+        conversation_turn = int(body.get("conversation_turn") or 0)
+        persona_val = str(body.get("persona") or "")[:100]
+        user_query = str(body.get("query") or "")[:5000]
+        response_text = str(body.get("response_text") or "")[:16777216]
+        feedback_reason = str(body.get("feedback_reason") or "")[:500]
+        feedback_comment = str(body.get("feedback_comment") or "")[:2000]
+        detected_intent = str(body.get("detected_intent") or "")[:500]
+        sub_tasks = _json.dumps(body.get("sub_tasks")) if body.get("sub_tasks") else None
+        kpis_identified = _json.dumps(body.get("kpis_identified")) if body.get("kpis_identified") else None
+        tools_called = _json.dumps(body.get("tools_called")) if body.get("tools_called") else None
+        sql_queries = _json.dumps(body.get("sql_queries")) if body.get("sql_queries") else None
+        chart_type = str(body.get("chart_type") or "")[:100]
+        suggested_queries = _json.dumps(body.get("suggested_queries")) if body.get("suggested_queries") else None
+        response_length = int(body.get("response_length") or 0)
+        result_row_count = int(body.get("result_row_count") or 0) if body.get("result_row_count") is not None else None
+        result_column_count = int(body.get("result_column_count") or 0) if body.get("result_column_count") is not None else None
+        response_latency_ms = int(body.get("response_latency_ms") or 0) if body.get("response_latency_ms") is not None else None
+        confidence_score = float(body.get("confidence_score")) if body.get("confidence_score") is not None else None
+
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FEEDBACK_MASTER_TABLE
+                (SESSION_ID, CONVERSATION_TURN, PERSONA, USER_QUERY, RESPONSE_TEXT,
+                 FEEDBACK_TYPE, FEEDBACK_REASON, FEEDBACK_COMMENT,
+                 DETECTED_INTENT, SUB_TASKS, KPIS_IDENTIFIED, TOOLS_CALLED,
+                 SQL_QUERIES, CHART_TYPE, SUGGESTED_QUERIES,
+                 RESPONSE_LENGTH, RESULT_ROW_COUNT, RESULT_COLUMN_COUNT,
+                 RESPONSE_LATENCY_MS, CONFIDENCE_SCORE)
+            SELECT %s, %s, %s, %s, %s,
+                   %s, %s, %s,
+                   %s, TRY_PARSE_JSON(%s), TRY_PARSE_JSON(%s), TRY_PARSE_JSON(%s),
+                   TRY_PARSE_JSON(%s), %s, TRY_PARSE_JSON(%s),
+                   %s, %s, %s,
+                   %s, %s
+            """,
+            (
+                session_id, conversation_turn, persona_val, user_query, response_text,
+                feedback_type, feedback_reason, feedback_comment,
+                detected_intent, sub_tasks, kpis_identified, tools_called,
+                sql_queries, chart_type, suggested_queries,
+                response_length, result_row_count, result_column_count,
+                response_latency_ms, confidence_score,
+            ),
+        )
+
+        # Get the inserted FEEDBACK_ID for triage
+        feedback_id = None
+        if feedback_type == "thumbs_down":
+            cur2 = conn.cursor()
+            cur2.execute("SELECT MAX(FEEDBACK_ID) FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FEEDBACK_MASTER_TABLE WHERE SESSION_ID = %s AND CONVERSATION_TURN = %s", (session_id, conversation_turn))
+            row = cur2.fetchone()
+            if row:
+                feedback_id = row[0]
+            cur2.close()
+
+        cur.close()
+
+        # Trigger full feedback loop orchestrator for negative feedback
+        if feedback_id and feedback_type == "thumbs_down":
+            try:
+                loop_cur = conn.cursor()
+                loop_cur.execute("CALL DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.SP_FEEDBACK_LOOP_ORCHESTRATOR(%s)", (feedback_id,))
+                loop_result = loop_cur.fetchone()
+                loop_cur.close()
+                if loop_result:
+                    print(f"[Feedback Loop] {loop_result[0]}")
+            except Exception as loop_err:
+                print(f"[Feedback Loop Warning] Non-blocking: {loop_err}")
+
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"[Feedback Error] {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ── RAG Pipeline Endpoints ────────────────────────────────────────────────────

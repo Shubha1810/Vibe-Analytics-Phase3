@@ -220,9 +220,10 @@ body {
   font-size: 0.8rem;
   border-radius: 8px;
   border: 1px solid var(--border-color);
-  display: block;
+  display: inline-block;
   overflow-x: auto;
   max-width: 100%;
+  width: fit-content;
   white-space: nowrap;
 }
 .md-content {
@@ -240,11 +241,7 @@ body {
 .md-content td {
   padding: 8px 16px;
   border-bottom: 1px solid var(--border-color);
-  color: var(--hex-text-dim);
-}
-.md-content tr:first-child td {
   color: var(--hex-text);
-  font-weight: 500;
 }
 .md-content tbody tr:nth-child(even) {
   background: var(--hex-surface-2);

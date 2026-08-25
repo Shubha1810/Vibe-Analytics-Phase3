@@ -454,6 +454,8 @@ export default function InteractivePage() {
                   query={messages.filter((m) => m.role === "user").pop()?.content || ""}
                   persona={persona}
                   conversationHistory={messages.slice(0, i).map((m) => ({ role: m.role, content: m.content }))}
+                  sessionId={currentChatId || undefined}
+                  conversationTurn={i}
                   onLike={() => {
                     const userQ = messages.filter((m) => m.role === "user").pop()?.content || "";
                     setLikedAnswers((prev) => [...prev, { query: userQ, text: msg.agentData?.text || "", timestamp: Date.now() }]);

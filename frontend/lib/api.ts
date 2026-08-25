@@ -185,6 +185,29 @@ export interface ThreadDetail {
   spans: TraceSpan[];
 }
 
+export interface FeedbackPayload {
+  query: string;
+  response_text: string;
+  feedback_type: "thumbs_up" | "thumbs_down";
+  persona: string;
+  feedback_reason?: string;
+  feedback_comment?: string;
+  session_id?: string;
+  conversation_turn?: number;
+  detected_intent?: string;
+  sub_tasks?: string[];
+  kpis_identified?: string[];
+  tools_called?: { name: string; id?: string }[];
+  sql_queries?: string[];
+  chart_type?: string;
+  suggested_queries?: string[];
+  response_length?: number;
+  result_row_count?: number;
+  result_column_count?: number;
+  response_latency_ms?: number;
+  confidence_score?: number;
+}
+
 export const api = {
   getAuth: () => request<AuthStatus>("/api/auth"),
 
@@ -207,10 +230,10 @@ export const api = {
       body: JSON.stringify({ prompt }),
     }),
 
-  submitFeedback: (query: string, responseText: string, feedbackType: "thumbs_up" | "thumbs_down", persona: string) =>
+  submitFeedback: (payload: FeedbackPayload) =>
     request<{ success: boolean }>("/api/feedback", {
       method: "POST",
-      body: JSON.stringify({ query, response_text: responseText, feedback_type: feedbackType, persona }),
+      body: JSON.stringify(payload),
     }),
 
   search: (query: string) =>
