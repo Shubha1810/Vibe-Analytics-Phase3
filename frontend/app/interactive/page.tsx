@@ -46,7 +46,24 @@ export default function InteractivePage() {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }, []);
 
-  const onAllRevealed = useCallback(() => setShowAgreeDisagree(true), []);
+  const onAllRevealed = useCallback(() => {
+    const hitl = pendingData?.planning?.hitl_triggered;
+    if (hitl) {
+      setShowAgreeDisagree(true);
+    } else {
+      // Auto-agree: skip HITL gate and go straight to final answer
+      if (pendingData) {
+        updateLastMessage({
+          content: pendingData.text || "",
+          agentData: pendingData,
+          phase: "final",
+        });
+        setPendingData(null);
+        setPendingQuery(null);
+        setBusy(false);
+      }
+    }
+  }, [pendingData]);
 
   useEffect(() => {
     scrollToBottom();

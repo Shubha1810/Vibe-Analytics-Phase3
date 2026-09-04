@@ -21,9 +21,13 @@ instructions: |
   Based on the user's query, execute one or more of the following workflows:
 
   - **FULL DIAGNOSTIC** (user asks "why" or "diagnose" or "root cause") → Execute Steps 1-5
-  - **TREND ONLY** (user asks about "trend", "pattern", "seasonality", "YoY") → Execute Steps 1, 3
-  - **DRILL-DOWN ONLY** (user asks "by region", "by category", "which stores") → Execute Steps 1, 4
+  - **TREND ONLY** (user asks about "trend", "pattern", "seasonality", "YoY") → Execute Steps 1, 1b, 3
+  - **DRILL-DOWN ONLY** (user asks "by region", "by category", "which stores") → Execute Steps 1, 1b, 4
   - **OVERVIEW** (user asks "what happened", "summarize", "morning update") → Execute Steps 1-4 (abbreviated)
+
+  **CRITICAL: Step 1b (Benchmarking) is MANDATORY for ALL execution modes.** Every diagnostic,
+  overview, trend, or drill-down response MUST include YoY, QoQ, and MoM context. Never present
+  current-period metrics without historical benchmarks.
 
   ## STEP 1: SCOPE & QUANTIFY THE DEVIATION (Business Analyst Logic)
 
@@ -42,6 +46,48 @@ instructions: |
      - LOW: |deviation| < 10%
 
   d) Determine direction: UPSIDE (positive deviation) or DOWNSIDE (negative deviation)
+
+  ## STEP 1b: MANDATORY BENCHMARKING (All Execution Modes)
+
+  After scoping the deviation, ALWAYS query historical benchmarks for context. This step is
+  NON-OPTIONAL — skip no execution mode.
+
+  ### Step 1b-i: Year-over-Year (YoY) Benchmark
+
+  Query Cortex Analyst:
+  "For [scope], compare the average demand_deviation_pct in the current fiscal_week vs the same
+  fiscal_week in the prior fiscal_year. Also compare current fiscal_month vs same fiscal_month
+  prior year. Use fiscal_year and fiscal_week/fiscal_month columns."
+
+  ### Step 1b-ii: Quarter-over-Quarter (QoQ) Benchmark
+
+  Query Cortex Analyst:
+  "For [scope], compare the average demand_deviation_pct in the current fiscal_quarter vs the
+  prior fiscal_quarter (same fiscal_year if available, otherwise prior year same quarter).
+  Use fiscal_year and fiscal_quarter columns."
+
+  ### Step 1b-iii: Month-over-Month (MoM) Benchmark
+
+  Query Cortex Analyst:
+  "For [scope], compare the average demand_deviation_pct in the current fiscal_month vs the
+  prior fiscal_month. Use fiscal_year and fiscal_month columns."
+
+  ### Step 1b-iv: Build Benchmark Context Table
+
+  Compile a benchmarking table for downstream use:
+
+  | Period Comparison | Current | Prior | Change | Direction |
+  |-------------------|---------|-------|--------|-----------|
+  | WoW (vs prior fiscal week) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] |
+  | MoM (vs prior fiscal month) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] |
+  | QoQ (vs prior fiscal quarter) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] |
+  | YoY (vs same period last year) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] |
+
+  CRITICAL: NEVER use YEAR(transaction_date) or QUARTER(transaction_date).
+  ALWAYS use fiscal_year, fiscal_quarter, fiscal_month, fiscal_week columns.
+
+  This benchmark table MUST appear in the final diagnostic report (Step 5) under
+  "## Performance vs Historical Benchmarks".
 
   ## STEP 2: DRIVER ATTRIBUTION (Root Cause Analysis Logic)
 
@@ -164,10 +210,25 @@ instructions: |
   **Collinearity:** [None detected / Dampening applied to X]
   **Counterfactual:** Without [top driver], residual = [X%] → [CONFIRMED/MULTIPLE CAUSES]
 
+  ## Performance vs Historical Benchmarks
+
+  | Period Comparison | Current | Prior | Change | Direction | Assessment |
+  |-------------------|---------|-------|--------|-----------|------------|
+  | WoW (vs prior fiscal week) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] | [Accelerating/Decelerating/Stable] |
+  | MoM (vs prior fiscal month) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] | [Improving/Worsening/Flat] |
+  | QoQ (vs prior fiscal quarter) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] | [Structural shift / Seasonal norm / New pattern] |
+  | YoY (vs same period last year) | [X%] | [Y%] | [+/-Zpp] | [▲/▼/—] | [Better/Worse than last year's baseline] |
+
+  **Benchmark interpretation:** [2-3 sentences explaining what the multi-period pattern reveals.
+  Is this a new problem or a recurring one? Is it getting worse or improving? How does it compare
+  to the same seasonal moment last year?]
+
   ## How the deviation is trending over time
 
   - **Direction:** [Increasing/Decreasing/Stable] over [timeframe]
   - **YoY Change:** [current period] vs [prior year same period]: [+/-X%] difference
+  - **QoQ Change:** [current quarter] vs [prior quarter]: [+/-X%] difference
+  - **MoM Change:** [current month] vs [prior month]: [+/-X%] difference
   - **Seasonality:** [Detected/Not detected] — [pattern description]
   - **Changepoints:** [None / Detected at fiscal_week X — describe shift]
 
@@ -215,6 +276,8 @@ instructions: |
     a concise parenthetical stating what is compared to what. The reader must NEVER guess.
     - deviation figures: "+7.6% (actual vs expected demand)"
     - week-over-week: "+3pp (vs prior fiscal week)"
+    - month-over-month: "+5pp (vs prior fiscal month)"
+    - quarter-over-quarter: "+8pp (vs prior fiscal quarter)"
     - year-over-year: "+12% (vs same fiscal week prior year)"
     - vs forecast: "-8% (actual vs statistical forecast)"
     - trend sequences: "+2.1% (actual vs expected, FW202622) → +7.0% (actual vs expected, FW202623)"

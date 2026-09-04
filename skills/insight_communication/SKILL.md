@@ -81,6 +81,50 @@ instructions: |
 
   ## STEP 3: GENERATE NARRATIVE
 
+  ### WHY-FIRST RULE (CRITICAL — applies to ALL narrative types)
+
+  Every response MUST open with a causal explanation BEFORE presenting metrics. The reader's
+  first question is always "why is this happening?" — answer it before showing numbers.
+
+  **Structure:** Lead with 2-3 sentences that explain the causal narrative:
+  1. What changed (the event or shift)
+  2. Why it changed (the primary driver or root cause)
+  3. Whether this is new, recurring, or seasonal (historical context from benchmarks)
+
+  **WRONG — metrics first, no why:**
+  > "Total exposure jumped to $3.93M this week, up $1.25M (+46.9%) week-over-week."
+
+  **RIGHT — why first, then metrics:**
+  > "A brand-new viral spike in Portable Speakers combined with a systematic Digital-signal
+  > blind spot in Milk forecasting drove total exposure to $3.93M this week — up $1.25M (+46.9%
+  > vs prior fiscal week). This is the highest single-week escalation in the nine-week register,
+  > and YoY comparisons show exposure is 2.3x the same fiscal week last year, confirming this
+  > is not a seasonal pattern."
+
+  The "why" must come from driver attribution data and historical benchmarks, not speculation.
+  If the root cause is unclear, say so explicitly: "The primary driver has not been isolated —
+  residual variance accounts for X% of the deviation."
+
+  ### MANDATORY BENCHMARKING CONTEXT
+
+  Every diagnostic or overview response MUST include a multi-period benchmarking section.
+  This section presents the current metric against WoW, MoM, QoQ, and YoY baselines so the
+  reader can assess whether the situation is new, recurring, improving, or structural.
+
+  Include this table (or equivalent narrative for executive personas) AFTER the opening
+  causal narrative and BEFORE detailed findings:
+
+  | Benchmark | Current | Prior Period | Change | Assessment |
+  |-----------|---------|-------------|--------|------------|
+  | vs Prior Week (WoW) | [val] | [val] | [+/-] | [direction] |
+  | vs Prior Month (MoM) | [val] | [val] | [+/-] | [direction] |
+  | vs Prior Quarter (QoQ) | [val] | [val] | [+/-] | [direction] |
+  | vs Same Period Last Year (YoY) | [val] | [val] | [+/-] | [direction] |
+
+  For executive personas (Lisa Hayes), integrate benchmarks into the executive summary
+  narrative rather than a separate table, e.g.: "Exposure is up 46.9% WoW but also up
+  2.3x YoY — this is not seasonal, it's a structural escalation."
+
   Structure the narrative based on analytical output type:
 
   ### For Diagnostic Analysis (from descriptive_demand_analysis):
@@ -157,9 +201,9 @@ instructions: |
 
   ### Response Structure (Standard):
   ```
-  [Headline — 1 sentence, bold]
+  [WHY — 2-3 sentences explaining what changed, why, and whether this is new/recurring/seasonal]
 
-  [Context paragraph — 2-3 sentences max]
+  [Benchmarking Context — WoW, MoM, QoQ, YoY comparison table or inline narrative]
 
   [Key Findings / Attribution / Forecast — structured format]
 
@@ -172,9 +216,9 @@ instructions: |
 
   ### Response Structure (Executive / Lisa):
   ```
-  [Executive Summary — 2 sentences covering the "so what"]
+  [Executive Summary — 2-3 sentences covering the "why" and "so what", with inline YoY/QoQ benchmarks]
 
-  [Dashboard View — key metrics in structured table]
+  [Dashboard View — key metrics in structured table, each with WoW + YoY columns]
 
   [Departmental Highlights — bulleted by department]
 
@@ -211,6 +255,8 @@ instructions: |
     - WRONG: "acceleration from +2.1% in FW202622 → +7.0% in FW202623 → +7.6% in FW202624"
     - RIGHT: "+2.1% (actual vs expected, FW202622) → +7.0% (actual vs expected, FW202623) → +7.6% (actual vs expected, FW202624)"
     - For YoY: "+12% (vs same fiscal week last year)"
+    - For QoQ: "+8pp (vs prior fiscal quarter)"
+    - For MoM: "+5pp (vs prior fiscal month)"
     - For WoW: "+3pp (vs prior fiscal week)"
     - For vs forecast: "-8% (actual vs statistical forecast)"
     - For deviation: "+7.6% (actual demand exceeded expected demand by 7.6%)"

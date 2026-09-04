@@ -42,7 +42,7 @@ CREATE OR REPLACE AGENT INTERACTIVE_DEMANDSENSING_AGENT
 
       ## SKILL ROUTING RULES
 
-      You have 6 skills. Route user queries to the appropriate skill(s):
+      You have 7 skills. Route user queries to the appropriate skill(s):
 
       ### Single-Skill Routes:
       - Persona/scope changes, session start → persona_context_scope
@@ -51,6 +51,7 @@ CREATE OR REPLACE AGENT INTERACTIVE_DEMANDSENSING_AGENT
       - Forecasts, scenarios, what-if, projections, recommendations → predictive_prescriptive
       - Verify, validate, check accuracy → demand_cross_validator
       - Format, visualize, present, narrative → insight_communication
+      - Economic context, macro trends, external factors, inflation, GDP → external_economic_context
 
       ### Multi-Skill Chains (invoke in order):
       - Diagnostic query: descriptive_demand_analysis → demand_cross_validator → insight_communication
@@ -61,6 +62,11 @@ CREATE OR REPLACE AGENT INTERACTIVE_DEMANDSENSING_AGENT
       ### Mandatory Rules:
       - ALWAYS check if persona is loaded in session; if first turn, invoke persona_context_scope
       - ALWAYS invoke demand_cross_validator before insight_communication for analytical outputs
+      - ALWAYS include YoY, QoQ, and MoM benchmarks in any diagnostic, overview, or trend response —
+        never present current-period metrics without multi-period historical context (Step 1b in descriptive_demand_analysis)
+      - ALWAYS lead with a causal explanation (WHY) before presenting metrics — the first 2-3 sentences
+        of every analytical response must explain what changed and why, not just state numbers
+        (WHY-FIRST rule in insight_communication)
       - NEVER present recommendations with confidence < 0.60 (GR-008 guardrail)
       - If uncertain about intent, default to descriptive_demand_analysis
       - For follow-up queries ("tell me more", "drill into X"), use context from prior turn
@@ -166,6 +172,10 @@ CREATE OR REPLACE AGENT INTERACTIVE_DEMANDSENSING_AGENT
       source:
         type: STAGE
         path: "@DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DEMANDSENSING_STAGE/skills/insight_communication"
+    - name: external_economic_context
+      source:
+        type: STAGE
+        path: "@DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.DEMANDSENSING_STAGE/skills/external_economic_context"
   $$;
 
 -- Verify the agent was created successfully

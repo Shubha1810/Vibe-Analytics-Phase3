@@ -103,7 +103,30 @@ export default function ThinkingCard({
   };
 
   const tools = planning?.tools_called || [];
-  const toolNames = [...new Set(tools.map((t) => t.name))].join(", ");
+  const TOOL_DISPLAY_NAMES: Record<string, string> = {
+    // MCP tools (all naming variants the agent might use)
+    "demandsensing_mcp_server_get_national_inflation_cpi": "Inflation (CPI)",
+    "demandsensing_mcp_server_get_state_unemployment_rate": "Unemployment (State)",
+    "demandsensing_mcp_server_get_national_cost_of_living_index": "Cost of Living",
+    "demandsensing_mcp_server_get_national_consumer_confidence_index": "Consumer Confidence",
+    "MCP:get_national_inflation_cpi": "Inflation (CPI)",
+    "MCP:get_state_unemployment_rate": "Unemployment (State)",
+    "MCP:get_national_cost_of_living_index": "Cost of Living",
+    "MCP:get_national_consumer_confidence_index": "Consumer Confidence",
+    "get_national_inflation_cpi": "Inflation (CPI)",
+    "get_state_unemployment_rate": "Unemployment (State)",
+    "get_national_cost_of_living_index": "Cost of Living",
+    "get_national_consumer_confidence_index": "Consumer Confidence",
+    // Core tools
+    "DemandSensingAnalyst": "Analyst",
+    "classify_intent": "Intent",
+    "system_execute_sql": "SQL",
+    "PLOTLY_DEMANDSENSING": "Chart",
+    "DemandSensingRAG": "RAG Search",
+    "PythonSandbox": "Python",
+    "Run_ML_Tasks": "ML Engine",
+  };
+  const toolNames = [...new Set(tools.map((t) => TOOL_DISPLAY_NAMES[t.name] || t.name))].join(", ");
   const allDone = activeStep >= totalSteps;
   const allRevealed = allDone && (planning !== null || !progressive);
 

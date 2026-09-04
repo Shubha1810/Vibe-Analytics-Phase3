@@ -37,23 +37,24 @@ export default function SpanTree({ spans }: SpanTreeProps) {
   );
   const displayRoots = filteredRoots.length > 0 ? filteredRoots : rootSpans;
 
-  function renderSpan(span: TraceSpan, depth: number): React.ReactNode {
+  function renderSpan(span: TraceSpan, depth: number, index: number): React.ReactNode {
+    const key = `${span.span_id}-${index}`;
     const children = childrenMap[span.span_id] || [];
     // For the "Agent" root span, render children directly instead of nesting deeply
     if (span.span_name === "Agent" && depth === 0 && children.length > 0) {
       return (
-        <div key={span.span_id} className="space-y-1">
+        <div key={key} className="space-y-1">
           <SpanNode span={span} depth={depth} />
-          {children.map((child) => renderSpan(child, depth + 1))}
+          {children.map((child, i) => renderSpan(child, depth + 1, i))}
         </div>
       );
     }
     return (
-      <div key={span.span_id} className="space-y-1">
+      <div key={key} className="space-y-1">
         <SpanNode span={span} depth={depth}>
           {children.length > 0 && (
             <div className="space-y-1">
-              {children.map((child) => renderSpan(child, depth + 1))}
+              {children.map((child, i) => renderSpan(child, depth + 1, i))}
             </div>
           )}
         </SpanNode>
@@ -63,7 +64,7 @@ export default function SpanTree({ spans }: SpanTreeProps) {
 
   return (
     <div className="space-y-1.5">
-      {displayRoots.map((span) => renderSpan(span, 0))}
+      {displayRoots.map((span, i) => renderSpan(span, 0, i))}
     </div>
   );
 }

@@ -576,6 +576,49 @@ def api_agent_query():
     if persona and not messages:
         user_content = f"[Persona: {persona}] {question}"
 
+    # --- FEEDBACK RULES INJECTION ---
+    # Query FEEDBACK_RULES for matching rules based on vector similarity to the user's question
+    injected_rules = []
+    try:
+        rules_cur = conn.cursor()
+        escaped_q = question.replace("'", "''")
+        rules_cur.execute(f"""
+            SELECT RULE_TEXT, RULE_CATEGORY, RULE_PRIORITY,
+                   VECTOR_COSINE_SIMILARITY(QUERY_EMBEDDING, SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', '{escaped_q}')) AS SIM
+            FROM DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FEEDBACK_RULES
+            WHERE IS_ACTIVE = TRUE
+            HAVING SIM >= 0.75
+            ORDER BY SIM DESC
+            LIMIT 5
+        """)
+        matched_rules = rules_cur.fetchall()
+        rules_cur.close()
+
+        for rule_row in matched_rules:
+            rule_text = rule_row[0]
+            rule_cat = rule_row[1]
+            injected_rules.append(f"[{rule_cat.upper()}] {rule_text}")
+
+        # Update hit counts for matched rules
+        if matched_rules:
+            hit_cur = conn.cursor()
+            hit_cur.execute(f"""
+                UPDATE DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.FEEDBACK_RULES
+                SET HIT_COUNT = HIT_COUNT + 1, LAST_HIT_AT = CURRENT_TIMESTAMP()
+                WHERE IS_ACTIVE = TRUE
+                  AND VECTOR_COSINE_SIMILARITY(QUERY_EMBEDDING, SNOWFLAKE.CORTEX.EMBED_TEXT_768('e5-base-v2', '{escaped_q}')) >= 0.75
+            """)
+            hit_cur.close()
+    except Exception as rules_err:
+        print(f"[Feedback Rules] Non-blocking error: {rules_err}")
+
+    # If matching rules found, prepend them as system context to the user message
+    if injected_rules:
+        rules_block = "\n".join(injected_rules)
+        user_content = f"[FEEDBACK IMPROVEMENT RULES - You MUST follow these]\n{rules_block}\n\n[USER QUESTION]\n{user_content}"
+        print(f"[Feedback Rules] Injected {len(injected_rules)} rules into query")
+    # --- END FEEDBACK RULES INJECTION ---
+
     messages.append({"role": "user", "content": [{"type": "text", "text": user_content}]})
 
     # Use Snowflake REST API for Cortex Agent
@@ -694,6 +737,12 @@ def api_agent_query():
                 if tool_input.get("query_sql"):
                     sql_parts.append(tool_input["query_sql"])
 
+            elif itype == "mcp_tool_use":
+                mcp_data = item.get("mcp_tool_use", item.get("tool_use", {}))
+                mcp_tool_name = mcp_data.get("name", "")
+                if mcp_tool_name:
+                    tools_called.append({"name": f"MCP:{mcp_tool_name}"})
+
             elif itype == "tool_result":
                 tool_result_data = item.get("tool_result", {})
                 tool_name = tool_result_data.get("name", "")
@@ -789,6 +838,54 @@ def api_agent_query():
 
         final_text = "\n\n".join(text_parts) if text_parts else "No response generated."
 
+        # Post-process: Deduplicate repeated sections
+        # The agent sometimes restarts its output after a tool result, producing
+        # the same headings, tables, and paragraphs twice. This detects and removes
+        # the duplicate block by finding repeated ## headings.
+        def _deduplicate_response(text):
+            lines = text.split('\n')
+            heading_positions = {}
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if stripped.startswith('## '):
+                    heading_text = stripped
+                    if heading_text in heading_positions:
+                        # Found a duplicate heading — keep everything up to the
+                        # first occurrence of this heading's second appearance,
+                        # then skip forward to find where the duplicate block ends
+                        # (next heading that hasn't been seen before, or end).
+                        first_block_end = i
+                        # Find where the duplicated block ends
+                        dup_end = len(lines)
+                        for j in range(i + 1, len(lines)):
+                            candidate = lines[j].strip()
+                            if candidate.startswith('## ') and candidate not in heading_positions:
+                                dup_end = j
+                                break
+                        # Rebuild: everything before the dup + everything after
+                        before = '\n'.join(lines[:first_block_end])
+                        after = '\n'.join(lines[dup_end:])
+                        result = before.rstrip()
+                        if after.strip():
+                            result = result + '\n\n' + after.lstrip('\n')
+                        return _deduplicate_response(result)  # recurse for additional dups
+                    heading_positions[heading_text] = i
+            return text
+
+        final_text = _deduplicate_response(final_text)
+
+        # Also remove duplicate paragraphs (3+ lines that appear verbatim twice)
+        paragraphs = re.split(r'\n{2,}', final_text)
+        seen = set()
+        unique_paragraphs = []
+        for para in paragraphs:
+            normalized = para.strip()
+            if len(normalized) > 80 and normalized in seen:
+                continue  # skip duplicate paragraph
+            seen.add(normalized)
+            unique_paragraphs.append(para)
+        final_text = '\n\n'.join(unique_paragraphs)
+
         # Post-process: Remove standalone labels/badges that lack context
         # Detects lines that are just 1-3 words, all uppercase or bold, with no
         # explanatory sentence — these are internal severity/status tags the agent
@@ -826,9 +923,25 @@ def api_agent_query():
 
         # Build planning data from real classify_demand_sensing_intent result
         if classified_intent:
+            # Compute HITL threshold and trigger from classify_intent output
+            hitl_thresholds = {
+                "DATA_QUERY": 0.40, "OPERATIONAL_KPI": 0.40,
+                "DETECT": 0.55, "TREND_ANALYSIS": 0.55, "COMPARISON": 0.55,
+                "LOST_SALES_ANALYSIS": 0.55, "REPLENISHMENT_HEALTH": 0.55,
+                "RECOVERY_ECONOMICS": 0.65, "ROOT_CAUSE": 0.65,
+                "DEMAND_DRIVER_ATTRIBUTION": 0.65, "FORECAST_ACCURACY": 0.65,
+                "RISK_ASSESSMENT": 0.65, "PERISHABLE_RISK": 0.65, "PREDICTION": 0.65,
+                "BENCHMARK": 0.70, "SCENARIO_ANALYSIS": 0.70,
+                "RECOMMENDATION": 0.75,
+            }
+            ci_intent = classified_intent.get("intent", "DATA_QUERY")
+            ci_confidence = classified_intent.get("confidence", 0.7)
+            ci_threshold = hitl_thresholds.get(ci_intent, 0.65)
             planning = {
-                "intent": classified_intent.get("intent", "DATA_QUERY"),
-                "confidence": classified_intent.get("confidence", 0.7),
+                "intent": ci_intent,
+                "confidence": ci_confidence,
+                "hitl_triggered": ci_confidence < ci_threshold,
+                "hitl_threshold": ci_threshold,
                 "recommended_chart": classified_intent.get("recommended_chart", "bar"),
                 "viz_rationale": classified_intent.get("viz_rationale", ""),
                 "sub_tasks": classified_intent.get("sub_tasks", []),
@@ -955,17 +1068,24 @@ def api_feedback():
 
         cur.close()
 
-        # Trigger full feedback loop orchestrator for negative feedback
+        # Trigger feedback loop orchestrator ASYNCHRONOUSLY for negative feedback
+        # This runs in a background thread so the UI gets an instant response
         if feedback_id and feedback_type == "thumbs_down":
-            try:
-                loop_cur = conn.cursor()
-                loop_cur.execute("CALL DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.SP_FEEDBACK_LOOP_ORCHESTRATOR(%s)", (feedback_id,))
-                loop_result = loop_cur.fetchone()
-                loop_cur.close()
-                if loop_result:
-                    print(f"[Feedback Loop] {loop_result[0]}")
-            except Exception as loop_err:
-                print(f"[Feedback Loop Warning] Non-blocking: {loop_err}")
+            def _run_feedback_loop(fid):
+                try:
+                    bg_conn = get_connection()
+                    bg_cur = bg_conn.cursor()
+                    bg_cur.execute("CALL DEMANDSENSING_AI.DEMANDSENSING_SCHEMA.SP_FEEDBACK_LOOP_ORCHESTRATOR(%s)", (fid,))
+                    bg_result = bg_cur.fetchone()
+                    bg_cur.close()
+                    if bg_result:
+                        print(f"[Feedback Loop] {bg_result[0]}")
+                except Exception as bg_err:
+                    print(f"[Feedback Loop Warning] Background: {bg_err}")
+
+            thread = threading.Thread(target=_run_feedback_loop, args=(feedback_id,), daemon=True)
+            thread.start()
+            print(f"[Feedback Loop] Orchestrator launched in background for feedback_id={feedback_id}")
 
         return jsonify({"success": True})
     except Exception as e:
@@ -1070,7 +1190,7 @@ def api_rag_document_detail(doc_id):
 OBSERVABILITY_AGENTS = {
     "Demand Analyst": {
         "Interactive": [
-            {"name": "INTERACTIVE_DEMANDSENSING_AGENT", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_AI", "display_name": "Interactive Demand Sensing Agent"},
+            {"name": "INTERACTIVE_DEMANDSENSING_AGENT", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Interactive Demand Sensing Agent"},
             {"name": "BA_SUB_ORCHESTRATOR_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "BA Sub-Orchestrator"},
             {"name": "DATA_GATHERING_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Data Gathering Agent"},
             {"name": "DIMENSIONAL_ANALYSIS_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Dimensional Analysis Agent"},
@@ -1125,7 +1245,7 @@ def api_observability_threads():
     """Return list of conversation threads for a given agent."""
     try:
         agent_name = request.args.get("agent_name", "INTERACTIVE_DEMANDSENSING_AGENT")
-        schema = request.args.get("schema", "DEMANDSENSING_AI")
+        schema = request.args.get("schema", "DEMANDSENSING_SCHEMA")
         database = request.args.get("database", "DEMANDSENSING_AI")
         days = int(request.args.get("days", "30"))
 
@@ -1193,7 +1313,7 @@ def api_observability_thread_detail(record_id):
     """Return full span tree for a conversation thread."""
     try:
         agent_name = request.args.get("agent_name", "INTERACTIVE_DEMANDSENSING_AGENT")
-        schema = request.args.get("schema", "DEMANDSENSING_AI")
+        schema = request.args.get("schema", "DEMANDSENSING_SCHEMA")
         database = request.args.get("database", "DEMANDSENSING_AI")
 
         # Get the user question and response

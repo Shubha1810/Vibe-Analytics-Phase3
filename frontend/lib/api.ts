@@ -46,6 +46,8 @@ export interface KPI {
 export interface PlanningData {
   intent?: string;
   confidence?: number;
+  hitl_triggered?: boolean;
+  hitl_threshold?: number;
   recommended_chart?: string;
   viz_rationale?: string;
   sub_tasks?: string[];
