@@ -3,23 +3,11 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { type Persona, PERSONAS } from "@/lib/constants";
 import type { AgentResponse } from "@/lib/api";
+import type { OrchestrationEvent, OrchestrationResult } from "@/lib/orchestration-types";
 
 type Theme = "light" | "dark";
 
-// Autonomous pipeline state types
-export type PipelineStatus = "idle" | "running" | "completed";
-
-export interface PipelineResult {
-  total_nodes: number;
-  completed_nodes: number;
-  narration: string;
-  validation_verdict: string;
-  agent_results: { node_id: string; text: string; section_id: string }[];
-}
-
-export interface ScorecardData {
-  [key: string]: Record<string, unknown>[] | Record<string, number> | undefined;
-}
+export type OrchestrationUIStatus = "idle" | "submitting" | "running" | "completed" | "failed";
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -59,19 +47,19 @@ interface AppState {
   loadChat: (chatId: string) => void;
   deleteChat: (chatId: string) => void;
   renameChat: (chatId: string, newTitle: string) => void;
-  // Autonomous pipeline state (persists across tab navigation)
-  autoStatus: PipelineStatus;
-  setAutoStatus: (s: PipelineStatus) => void;
-  autoCurrentPhase: number;
-  setAutoCurrentPhase: (p: number) => void;
-  autoPhasesCompleted: string[];
-  setAutoPhasesCompleted: (p: string[] | ((prev: string[]) => string[])) => void;
-  autoPipelineResult: PipelineResult | null;
-  setAutoPipelineResult: (r: PipelineResult | null) => void;
-  autoScorecard: ScorecardData | null;
-  setAutoScorecard: (s: ScorecardData | null) => void;
-  autoTotalTime: number;
-  setAutoTotalTime: (t: number) => void;
+  // Autonomous orchestration state (persists across tab navigation)
+  runId: string | null;
+  setRunId: (id: string | null) => void;
+  orchestrationStatus: OrchestrationUIStatus;
+  setOrchestrationStatus: (s: OrchestrationUIStatus) => void;
+  nodeEvents: OrchestrationEvent[];
+  setNodeEvents: (events: OrchestrationEvent[] | ((prev: OrchestrationEvent[]) => OrchestrationEvent[])) => void;
+  orchestrationResult: OrchestrationResult | null;
+  setOrchestrationResult: (r: OrchestrationResult | null) => void;
+  selectedPersonas: string[];
+  setSelectedPersonas: (p: string[] | ((prev: string[]) => string[])) => void;
+  orchestrationError: string | null;
+  setOrchestrationError: (e: string | null) => void;
   resetAutonomous: () => void;
 }
 
@@ -110,13 +98,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [chatHistory, setChatHistory] = useState<ChatSession[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [messages, setMessagesRaw] = useState<ChatMessage[]>([]);
-  // Autonomous pipeline state
-  const [autoStatus, setAutoStatus] = useState<PipelineStatus>("idle");
-  const [autoCurrentPhase, setAutoCurrentPhase] = useState(-1);
-  const [autoPhasesCompleted, setAutoPhasesCompleted] = useState<string[]>([]);
-  const [autoPipelineResult, setAutoPipelineResult] = useState<PipelineResult | null>(null);
-  const [autoScorecard, setAutoScorecard] = useState<ScorecardData | null>(null);
-  const [autoTotalTime, setAutoTotalTime] = useState(0);
+  // Autonomous orchestration state
+  const [runId, setRunId] = useState<string | null>(null);
+  const [orchestrationStatus, setOrchestrationStatus] = useState<OrchestrationUIStatus>("idle");
+  const [nodeEvents, setNodeEvents] = useState<OrchestrationEvent[]>([]);
+  const [orchestrationResult, setOrchestrationResult] = useState<OrchestrationResult | null>(null);
+  const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+  const [orchestrationError, setOrchestrationError] = useState<string | null>(null);
   const initialized = useRef(false);
   const isLoadingChat = useRef(false);
 
@@ -252,12 +240,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetAutonomous = useCallback(() => {
-    setAutoStatus("idle");
-    setAutoCurrentPhase(-1);
-    setAutoPhasesCompleted([]);
-    setAutoPipelineResult(null);
-    setAutoScorecard(null);
-    setAutoTotalTime(0);
+    setRunId(null);
+    setOrchestrationStatus("idle");
+    setNodeEvents([]);
+    setOrchestrationResult(null);
+    setSelectedPersonas([]);
+    setOrchestrationError(null);
   }, []);
 
   return (
@@ -267,12 +255,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       currentChatId, messages, chatHistory,
       addMessage, updateLastMessage, setMessages,
       startNewChat, loadChat, deleteChat, renameChat,
-      autoStatus, setAutoStatus,
-      autoCurrentPhase, setAutoCurrentPhase,
-      autoPhasesCompleted, setAutoPhasesCompleted,
-      autoPipelineResult, setAutoPipelineResult,
-      autoScorecard, setAutoScorecard,
-      autoTotalTime, setAutoTotalTime,
+      runId, setRunId,
+      orchestrationStatus, setOrchestrationStatus,
+      nodeEvents, setNodeEvents,
+      orchestrationResult, setOrchestrationResult,
+      selectedPersonas, setSelectedPersonas,
+      orchestrationError, setOrchestrationError,
       resetAutonomous,
     }}>
       {children}

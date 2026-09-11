@@ -1,3 +1,5 @@
+import type { OrchestrationEvent, OrchestrationResult } from "./orchestration-types";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 async function request<T>(url: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
@@ -81,66 +83,6 @@ export interface AgentResponse {
   vega_spec?: Record<string, unknown>;
   plotly_json?: Record<string, unknown>;
   suggested_queries?: string[];
-  error?: string;
-}
-
-export interface PipelineStep {
-  name: string;
-  desc: string;
-  icon: string;
-  query: string;
-}
-
-export interface AgentGraphNode {
-  node_id: string;
-  label: string;
-  icon: string;
-  agent: string;
-  section_id: string;
-  phase: string;
-}
-
-export interface AgentDisplayStep {
-  label: string;
-  icon: string;
-}
-
-export interface AgentPlan {
-  nodes: AgentGraphNode[];
-  display_steps: AgentDisplayStep[];
-  total_nodes: number;
-  total_display_steps: number;
-}
-
-export interface AgentNodeResult {
-  node_id: string;
-  node_index: number;
-  label: string;
-  icon: string;
-  agent: string;
-  section_id: string;
-  phase: string;
-  status: "completed" | "failed";
-  text: string;
-  tools: string[];
-  duration: number;
-  error: string;
-  validation_verdict: string;
-  total_nodes: number;
-}
-
-export interface SectionChartData {
-  chart_type: string;
-  title: string;
-  x: string;
-  y: string | null;
-  data: Record<string, unknown>[];
-}
-
-export interface PipelineStepResult {
-  data: Record<string, unknown>[];
-  analysis: string;
-  duration: string;
   error?: string;
 }
 
@@ -250,36 +192,22 @@ export const api = {
       body: JSON.stringify({ question }),
     }),
 
-  getPipelineSteps: (persona: string) =>
-    request<PipelineStep[]>(`/api/autonomous/steps?persona=${encodeURIComponent(persona)}`),
-
-  runPipelineStep: (stepIndex: number, persona: string) =>
-    request<PipelineStepResult>("/api/autonomous/step", {
+  // Autonomous Orchestration
+  submitOrchestration: (personas: string[]) =>
+    request<{ run_id: string }>("/api/autonomous/submit", {
       method: "POST",
-      body: JSON.stringify({ step_index: stepIndex, persona }),
+      body: JSON.stringify({ personas }),
     }),
 
-  // Agent Graph Pipeline (autonomous)
-  getAgentPlan: () => request<AgentPlan>("/api/autonomous/agent-plan"),
+  getOrchestrationEvents: (runId: string) =>
+    request<OrchestrationEvent[]>(
+      `/api/autonomous/events?run_id=${encodeURIComponent(runId)}`
+    ),
 
-  runAgentNode: (nodeIndex: number, pipelineState: Record<string, unknown>) =>
-    request<AgentNodeResult>("/api/autonomous/agent-step", {
-      method: "POST",
-      body: JSON.stringify({ node_index: nodeIndex, pipeline_state: pipelineState }),
-      timeoutMs: 180000,
-    }),
-
-  getReportCharts: (sectionIds?: string[]) =>
-    request<Record<string, SectionChartData>>("/api/autonomous/report-charts", {
-      method: "POST",
-      body: JSON.stringify({ section_ids: sectionIds }),
-    }),
-
-  getSectionChart: (sectionId: string) =>
-    request<SectionChartData>("/api/autonomous/section-chart", {
-      method: "POST",
-      body: JSON.stringify({ section_id: sectionId }),
-    }),
+  getOrchestrationResult: (runId: string) =>
+    request<OrchestrationResult>(
+      `/api/autonomous/result?run_id=${encodeURIComponent(runId)}`
+    ),
 
   // RAG Pipeline
   ragSearch: (query: string, category?: string, limit?: number) =>

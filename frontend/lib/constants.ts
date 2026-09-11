@@ -1,5 +1,6 @@
 export const PERSONAS = [
-  "Demand Analyst",
+  "Director of Demand Planning",
+  "Supply Chain Director",
 ] as const;
 
 export type Persona = (typeof PERSONAS)[number];
@@ -22,18 +23,32 @@ export const NAV_ITEMS = [
 
 // Persona-specific module descriptions for homepage tiles
 export const MODULE_BULLETS: Record<Persona, { autonomous: string[]; interactive: string[] }> = {
-  "Demand Analyst": {
+  "Director of Demand Planning": {
     autonomous: [
-      "Automated demand forecast accuracy analysis",
-      "Regional and SKU-level demand signal detection",
-      "Inventory optimization and replenishment scoring",
-      "No user input required — fully automated pipeline",
+      "Multi-agent anomaly detection across demand signals",
+      "Automated root cause and driver analysis per region",
+      "Revenue-at-stake quantification with prescribed actions",
+      "Executive briefing pack with cross-department contentions",
     ],
     interactive: [
-      "Conversational AI for demand and forecast queries",
-      "Cross-region and channel demand pattern analysis",
-      "Anomaly detection and seasonal trend deep-dives",
-      "Dynamic visualizations with root cause analysis",
+      "Conversational demand forecasting and scenario planning",
+      "Drill-down into regional and SKU-level anomalies",
+      "What-if simulations for demand shift responses",
+      "Dynamic visualizations with confidence intervals",
+    ],
+  },
+  "Supply Chain Director": {
+    autonomous: [
+      "End-to-end supply chain risk and disruption detection",
+      "Predictive lead-time and inventory optimization scoring",
+      "Cross-functional impact analysis across sourcing and logistics",
+      "Automated action plans with cost-benefit trade-offs",
+    ],
+    interactive: [
+      "Conversational AI for supply chain and logistics queries",
+      "Supplier performance and capacity constraint analysis",
+      "Scenario modeling for procurement and distribution",
+      "Real-time tracking of supply chain health indicators",
     ],
   },
 };
