@@ -260,24 +260,24 @@ export default function HomePage() {
       <div className="w-full h-px bg-[var(--border-color)] my-6" />
 
       {/* Module tiles */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8" style={{ alignItems: "stretch" }}>
         {/* Autonomous Module */}
-        <div className="relative">
+        <div className="relative flex flex-col">
           <div className="flex justify-center mb-4">
             <div className="w-14 h-14 rounded-full flex items-center justify-center"
               style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))", boxShadow: "0 4px 16px rgba(60,44,218,0.25)" }}>
               <span className="material-icons-outlined text-white" style={{ fontSize: "28px" }}>precision_manufacturing</span>
             </div>
           </div>
-          <Link href="/autonomous" className="block no-underline">
-            <div className="rounded-2xl border-2 border-[var(--hex-primary)]/20 p-6 transition-all hover:-translate-y-1 hover:shadow-lg hover:border-[var(--hex-primary)]/40"
+          <Link href="/autonomous" className="block no-underline flex-1">
+            <div className="rounded-2xl border-2 border-[var(--hex-primary)]/20 p-6 transition-all hover:-translate-y-1 hover:shadow-lg hover:border-[var(--hex-primary)]/40 h-full flex flex-col"
               style={{ background: "linear-gradient(135deg, rgba(60,44,218,0.03), rgba(60,44,218,0.08))" }}>
               <h3 className="text-lg font-bold text-[var(--hex-text)] mb-3">Autonomous Module</h3>
               <p className="text-[13px] text-[var(--hex-text-dim)] leading-relaxed mb-4">
                 Automatically generates comprehensive demand intelligence reports by analyzing forecast accuracy,
                 demand signals, and inventory health across regions and SKUs.
               </p>
-              <ul className="space-y-2">
+              <ul className="space-y-2 flex-1">
                 {bullets.autonomous.map((point, i) => (
                   <li key={i} className="flex items-start gap-2 text-[13px] text-[var(--hex-text-dim)]">
                     <span className="text-[var(--hex-primary)] mt-0.5">•</span>
@@ -290,22 +290,22 @@ export default function HomePage() {
         </div>
 
         {/* Interactive Module */}
-        <div className="relative">
+        <div className="relative flex flex-col">
           <div className="flex justify-center mb-4">
             <div className="w-14 h-14 rounded-full flex items-center justify-center"
               style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))", boxShadow: "0 4px 16px rgba(60,44,218,0.25)" }}>
               <span className="material-icons-outlined text-white" style={{ fontSize: "28px" }}>forum</span>
             </div>
           </div>
-          <Link href="/interactive" className="block no-underline">
-            <div className="rounded-2xl border-2 border-[var(--hex-primary)]/20 p-6 transition-all hover:-translate-y-1 hover:shadow-lg hover:border-[var(--hex-primary)]/40"
+          <Link href="/interactive" className="block no-underline flex-1">
+            <div className="rounded-2xl border-2 border-[var(--hex-primary)]/20 p-6 transition-all hover:-translate-y-1 hover:shadow-lg hover:border-[var(--hex-primary)]/40 h-full flex flex-col"
               style={{ background: "linear-gradient(135deg, rgba(60,44,218,0.03), rgba(60,44,218,0.08))" }}>
               <h3 className="text-lg font-bold text-[var(--hex-text)] mb-3">Interactive Module</h3>
               <p className="text-[13px] text-[var(--hex-text-dim)] leading-relaxed mb-4">
                 Engage with AI-powered demand analysis that surfaces forecast trends, anomaly detection,
                 and responds to follow-up questions with relevant visualizations and recommendations.
               </p>
-              <ul className="space-y-2">
+              <ul className="space-y-2 flex-1">
                 {bullets.interactive.map((point, i) => (
                   <li key={i} className="flex items-start gap-2 text-[13px] text-[var(--hex-text-dim)]">
                     <span className="text-[var(--hex-primary)] mt-0.5">•</span>

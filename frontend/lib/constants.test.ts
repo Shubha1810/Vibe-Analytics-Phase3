@@ -3,10 +3,11 @@ import { PERSONAS, MODULE_BULLETS, NAV_ITEMS } from "@/lib/constants";
 import type { Persona } from "@/lib/constants";
 
 describe("PERSONAS", () => {
-  it("contains exactly the two required personas", () => {
+  it("contains exactly the three required personas", () => {
     expect(PERSONAS).toEqual([
+      "Demand Planner",
+      "Supply Planner",
       "Director of Demand Planning",
-      "Supply Chain Director",
     ]);
   });
 

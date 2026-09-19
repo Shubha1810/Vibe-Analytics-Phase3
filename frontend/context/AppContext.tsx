@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { type Persona, PERSONAS } from "@/lib/constants";
 import type { AgentResponse } from "@/lib/api";
-import type { OrchestrationEvent, OrchestrationResult } from "@/lib/orchestration-types";
+import type { OrchestrationEvent, OrchestrationResult, MultiRunIds, MultiRunResults, PersonaKey } from "@/lib/orchestration-types";
 
 type Theme = "light" | "dark";
 
@@ -50,12 +50,18 @@ interface AppState {
   // Autonomous orchestration state (persists across tab navigation)
   runId: string | null;
   setRunId: (id: string | null) => void;
+  runIds: MultiRunIds;
+  setRunIds: (ids: MultiRunIds | ((prev: MultiRunIds) => MultiRunIds)) => void;
   orchestrationStatus: OrchestrationUIStatus;
   setOrchestrationStatus: (s: OrchestrationUIStatus) => void;
   nodeEvents: OrchestrationEvent[];
   setNodeEvents: (events: OrchestrationEvent[] | ((prev: OrchestrationEvent[]) => OrchestrationEvent[])) => void;
   orchestrationResult: OrchestrationResult | null;
   setOrchestrationResult: (r: OrchestrationResult | null) => void;
+  orchestrationResults: MultiRunResults;
+  setOrchestrationResults: (r: MultiRunResults | ((prev: MultiRunResults) => MultiRunResults)) => void;
+  activePersonaKey: PersonaKey;
+  setActivePersonaKey: (k: PersonaKey) => void;
   selectedPersonas: string[];
   setSelectedPersonas: (p: string[] | ((prev: string[]) => string[])) => void;
   orchestrationError: string | null;
@@ -66,6 +72,9 @@ interface AppState {
 const AppContext = createContext<AppState | null>(null);
 
 const STORAGE_KEY = "vibe-chat-history";
+
+const EMPTY_RUN_IDS: MultiRunIds = { demand_planner: null, supply_planner: null, director: null };
+const EMPTY_RUN_RESULTS: MultiRunResults = { demand_planner: null, supply_planner: null, director: null };
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -100,9 +109,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [messages, setMessagesRaw] = useState<ChatMessage[]>([]);
   // Autonomous orchestration state
   const [runId, setRunId] = useState<string | null>(null);
+  const [runIds, setRunIds] = useState<MultiRunIds>({ ...EMPTY_RUN_IDS });
   const [orchestrationStatus, setOrchestrationStatus] = useState<OrchestrationUIStatus>("idle");
   const [nodeEvents, setNodeEvents] = useState<OrchestrationEvent[]>([]);
   const [orchestrationResult, setOrchestrationResult] = useState<OrchestrationResult | null>(null);
+  const [orchestrationResults, setOrchestrationResults] = useState<MultiRunResults>({ ...EMPTY_RUN_RESULTS });
+  const [activePersonaKey, setActivePersonaKey] = useState<PersonaKey>("demand_planner");
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [orchestrationError, setOrchestrationError] = useState<string | null>(null);
   const initialized = useRef(false);
@@ -241,9 +253,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const resetAutonomous = useCallback(() => {
     setRunId(null);
+    setRunIds({ ...EMPTY_RUN_IDS });
     setOrchestrationStatus("idle");
     setNodeEvents([]);
     setOrchestrationResult(null);
+    setOrchestrationResults({ ...EMPTY_RUN_RESULTS });
+    setActivePersonaKey("demand_planner");
     setSelectedPersonas([]);
     setOrchestrationError(null);
   }, []);
@@ -256,9 +271,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addMessage, updateLastMessage, setMessages,
       startNewChat, loadChat, deleteChat, renameChat,
       runId, setRunId,
+      runIds, setRunIds,
       orchestrationStatus, setOrchestrationStatus,
       nodeEvents, setNodeEvents,
       orchestrationResult, setOrchestrationResult,
+      orchestrationResults, setOrchestrationResults,
+      activePersonaKey, setActivePersonaKey,
       selectedPersonas, setSelectedPersonas,
       orchestrationError, setOrchestrationError,
       resetAutonomous,

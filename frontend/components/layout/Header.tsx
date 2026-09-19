@@ -13,6 +13,8 @@ export default function Header() {
     if (pathname.startsWith("/autonomous")) return "Autonomous Module";
     if (pathname.startsWith("/interactive")) return "Interactive Module";
     if (pathname.startsWith("/data-management")) return "Data Management";
+    if (pathname.startsWith("/observability")) return "AI Observability";
+    if (pathname.startsWith("/rag-pipeline")) return "Context Enhancement Layer";
     return "Home";
   };
 

@@ -16,40 +16,33 @@ const TIME_PRESETS = [
 ];
 
 // Fallback agent config — used if backend /api/observability/agents is unavailable
+const DS_INTERACTIVE: ObservabilityAgent[] = [
+  { name: "INTERACTIVE_DEMANDSENSING_AGENT", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Interactive Demand Sensing Agent" },
+];
+
+const DS_AUTONOMOUS: ObservabilityAgent[] = [
+  { name: "MASTER_ORCHESTRATOR_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Master Orchestrator" },
+  { name: "DATA_GATHERING_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Data Gathering Agent" },
+  { name: "DIMENSIONAL_ANALYSIS_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Dimensional Analysis Agent" },
+  { name: "EXEC_REPORT_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Exec Report Agent" },
+  { name: "PREDICTIVE_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Predictive Agent" },
+  { name: "PRESCRIPTIVE_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Prescriptive Agent" },
+  { name: "ROOT_CAUSE_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Root Cause Agent" },
+  { name: "TREND_DISCOVERY_AGENT_AUTO_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Trend Discovery Agent" },
+];
+
 const DEFAULT_AGENTS: Record<string, Record<string, ObservabilityAgent[]>> = {
-  "Demand Analyst": {
-    Interactive: [
-      { name: "INTERACTIVE_DEMANDSENSING_AGENT", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_AI", display_name: "Interactive Demand Sensing Agent" },
-      { name: "BA_SUB_ORCHESTRATOR_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "BA Sub-Orchestrator" },
-      { name: "DATA_GATHERING_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Data Gathering Agent" },
-      { name: "DIMENSIONAL_ANALYSIS_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Dimensional Analysis Agent" },
-      { name: "DS_SUB_ORCHESTRATOR_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "DS Sub-Orchestrator" },
-      { name: "FEATURE_ENHANCEMENT_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Feature Enhancement Agent" },
-      { name: "INSIGHTS_NARRATION_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Insights Narration Agent" },
-      { name: "PERSONA_CONTEXT_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Persona Context Agent" },
-      { name: "PREDICTIVE_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Predictive Agent" },
-      { name: "PRESCRIPTIVE_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Prescriptive Agent" },
-      { name: "ROOT_CAUSE_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Root Cause Agent" },
-      { name: "TREND_DISCOVERY_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Trend Discovery Agent" },
-      { name: "VALIDATION_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Validation Agent" },
-      { name: "VISUALIZATION_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Visualization Agent" },
-    ],
-    Autonomous: [
-      { name: "MASTER_ORCHESTRATOR_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Master Orchestrator" },
-      { name: "BA_SUB_ORCHESTRATOR_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "BA Sub-Orchestrator" },
-      { name: "DATA_GATHERING_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Data Gathering Agent" },
-      { name: "DIMENSIONAL_ANALYSIS_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Dimensional Analysis Agent" },
-      { name: "DS_SUB_ORCHESTRATOR_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "DS Sub-Orchestrator" },
-      { name: "FEATURE_ENHANCEMENT_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Feature Enhancement Agent" },
-      { name: "INSIGHTS_NARRATION_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Insights Narration Agent" },
-      { name: "PERSONA_CONTEXT_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Persona Context Agent" },
-      { name: "PREDICTIVE_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Predictive Agent" },
-      { name: "PRESCRIPTIVE_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Prescriptive Agent" },
-      { name: "ROOT_CAUSE_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Root Cause Agent" },
-      { name: "TREND_DISCOVERY_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Trend Discovery Agent" },
-      { name: "VALIDATION_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Validation Agent" },
-      { name: "VISUALIZATION_AGENT_DEMANDSENSING", database: "DEMANDSENSING_AI", schema: "DEMANDSENSING_SCHEMA", display_name: "Visualization Agent" },
-    ],
+  "Demand Planner": {
+    Interactive: DS_INTERACTIVE,
+    Autonomous: DS_AUTONOMOUS,
+  },
+  "Supply Planner": {
+    Interactive: DS_INTERACTIVE,
+    Autonomous: DS_AUTONOMOUS,
+  },
+  "Director of Demand Planning": {
+    Interactive: DS_INTERACTIVE,
+    Autonomous: DS_AUTONOMOUS,
   },
 };
 
@@ -70,6 +63,7 @@ export default function ObservabilityPage() {
   const [threadDetail, setThreadDetail] = useState<ThreadDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState("");
+  const [responseExpanded, setResponseExpanded] = useState(true);
 
   // Load agents config — fallback to hardcoded defaults if API unavailable
   useEffect(() => {
@@ -322,14 +316,84 @@ export default function ObservabilityPage() {
               Back
             </button>
             <div className="flex-1 min-w-0">
-              <h2 className="text-[15px] font-semibold text-[var(--text-primary)] leading-snug">
+              <h2 className="text-[15px] font-semibold text-[var(--text-primary)] leading-snug mb-3">
                 {threadDetail.user_question || "Agent Conversation"}
               </h2>
-              <p className="text-[11px] text-[var(--text-muted)] mt-0.5">
-                Record: {threadDetail.record_id} &middot; {threadDetail.spans.length} spans
-              </p>
+              {/* Metadata Card */}
+              <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 space-y-2.5">
+                {/* Row 1: User, Timestamp, Record */}
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-[var(--text-muted)]">
+                  {threadDetail.user_name && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-icons-outlined text-[#3C2CDA]" style={{ fontSize: "14px" }}>person</span>
+                      <span className="text-[var(--text-muted)]">User</span>
+                      <strong className="text-[var(--text-primary)] font-semibold">{threadDetail.user_name}</strong>
+                    </span>
+                  )}
+                  {threadDetail.timestamp && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-icons-outlined text-[#00B894]" style={{ fontSize: "14px" }}>schedule</span>
+                      <span className="text-[var(--text-muted)]">Timestamp</span>
+                      <strong className="text-[var(--text-primary)] font-semibold">{new Date(threadDetail.timestamp).toLocaleString()}</strong>
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1.5">
+                    <span className="material-icons-outlined text-[#8B5CF6]" style={{ fontSize: "14px" }}>fingerprint</span>
+                    <span className="text-[var(--text-muted)]">Record</span>
+                    <strong className="text-[var(--text-primary)] font-semibold">{threadDetail.record_id}</strong>
+                    <span className="text-[var(--text-muted)]">&middot; {threadDetail.spans.length} spans</span>
+                  </span>
+                </div>
+                {/* Row 2: Datasources as chips */}
+                {threadDetail.datasources && threadDetail.datasources.length > 0 && (
+                  <div className="flex items-start gap-2">
+                    <span className="flex items-center gap-1.5 text-[11px] text-[var(--text-muted)] pt-0.5 flex-shrink-0">
+                      <span className="material-icons-outlined text-[#F59E0B]" style={{ fontSize: "14px" }}>storage</span>
+                      Datasources
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {threadDetail.datasources.map((ds, i) => (
+                        <span
+                          key={i}
+                          className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-[#3C2CDA]/8 text-[#3C2CDA] border border-[#3C2CDA]/15"
+                        >
+                          {ds}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Agent Response — collapsible */}
+          {threadDetail.agent_response && (
+            <div className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] mb-5">
+              <button
+                onClick={() => setResponseExpanded(!responseExpanded)}
+                className="w-full flex items-center justify-between cursor-pointer bg-transparent border-none p-0"
+              >
+                <h3 className="text-[13px] font-semibold text-[var(--text-primary)] m-0 flex items-center gap-2">
+                  <span className="material-icons-outlined text-[#3C2CDA]" style={{ fontSize: "16px" }}>smart_toy</span>
+                  Agent Response
+                  {selectedAgent && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium bg-[#3C2CDA]/8 text-[#3C2CDA] border border-[#3C2CDA]/15">
+                      {selectedAgent.display_name}
+                    </span>
+                  )}
+                </h3>
+                <span className="material-icons-outlined text-[var(--text-muted)] transition-transform" style={{ fontSize: "18px", transform: responseExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                  expand_more
+                </span>
+              </button>
+              {responseExpanded && (
+                <div className="text-[13px] text-[var(--text-secondary)] whitespace-pre-wrap max-h-[400px] overflow-y-auto leading-relaxed mt-3 pt-3 border-t border-[var(--border-color)]">
+                  {threadDetail.agent_response}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Span Tree */}
           <div className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] mb-5">
@@ -339,19 +403,6 @@ export default function ObservabilityPage() {
             </h3>
             <SpanTree spans={threadDetail.spans} />
           </div>
-
-          {/* Agent Response */}
-          {threadDetail.agent_response && (
-            <div className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)]">
-              <h3 className="text-[13px] font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
-                <span className="material-icons-outlined text-[#3C2CDA]" style={{ fontSize: "16px" }}>smart_toy</span>
-                Agent Response
-              </h3>
-              <div className="text-[13px] text-[var(--text-secondary)] whitespace-pre-wrap max-h-[400px] overflow-y-auto leading-relaxed">
-                {threadDetail.agent_response}
-              </div>
-            </div>
-          )}
         </div>
       ) : (
         /* Thread List View */

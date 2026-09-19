@@ -1,4 +1,4 @@
-import type { OrchestrationEvent, OrchestrationResult } from "./orchestration-types";
+import type { OrchestrationEvent, OrchestrationResult, OrchestrationGraph, AnalyticsData, MultiRunIds } from "./orchestration-types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -126,6 +126,9 @@ export interface ThreadDetail {
   record_id: string;
   user_question: string;
   agent_response: string;
+  user_name: string;
+  timestamp: string;
+  datasources: string[];
   spans: TraceSpan[];
 }
 
@@ -193,10 +196,24 @@ export const api = {
     }),
 
   // Autonomous Orchestration
-  submitOrchestration: (personas: string[]) =>
+  getPersonas: () =>
+    request<{ display_title: string; departments: string[]; persona_count: number; is_default: boolean }[]>(
+      "/api/autonomous/personas",
+    ),
+
+  getOrchestrationGraph: () =>
+    request<OrchestrationGraph>("/api/autonomous/graph"),
+
+  submitOrchestration: (personaTitle: string, department?: string | null) =>
     request<{ run_id: string }>("/api/autonomous/submit", {
       method: "POST",
-      body: JSON.stringify({ personas }),
+      body: JSON.stringify({ persona_title: personaTitle, department: department || null }),
+    }),
+
+  submitAllOrchestrations: () =>
+    request<{ run_ids: MultiRunIds; errors?: string[] }>("/api/autonomous/submit", {
+      method: "POST",
+      body: JSON.stringify({ run_all: true }),
     }),
 
   getOrchestrationEvents: (runId: string) =>
@@ -207,6 +224,12 @@ export const api = {
   getOrchestrationResult: (runId: string) =>
     request<OrchestrationResult>(
       `/api/autonomous/result?run_id=${encodeURIComponent(runId)}`
+    ),
+
+  getAutonomousAnalytics: (persona: string) =>
+    request<AnalyticsData>(
+      `/api/autonomous/analytics?persona=${encodeURIComponent(persona)}`,
+      { timeoutMs: 120000 },
     ),
 
   // RAG Pipeline

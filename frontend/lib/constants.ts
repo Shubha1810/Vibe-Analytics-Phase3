@@ -1,6 +1,7 @@
 export const PERSONAS = [
+  "Demand Planner",
+  "Supply Planner",
   "Director of Demand Planning",
-  "Supply Chain Director",
 ] as const;
 
 export type Persona = (typeof PERSONAS)[number];
@@ -18,17 +19,17 @@ export const NAV_ITEMS = [
   { id: "autonomous", label: "Autonomous Module", icon: "precision_manufacturing", path: "/autonomous", disabled: false },
   { id: "interactive", label: "Interactive Module", icon: "forum", path: "/interactive", disabled: false },
   { id: "observability", label: "AI Observability", icon: "visibility", path: "/observability", disabled: false },
-  { id: "rag-pipeline", label: "RAG Pipeline", icon: "model_training", path: "/rag-pipeline", disabled: false },
+  { id: "rag-pipeline", label: "Context Enhancement Layer", icon: "hub", path: "/rag-pipeline", disabled: false },
 ];
 
 // Persona-specific module descriptions for homepage tiles
 export const MODULE_BULLETS: Record<Persona, { autonomous: string[]; interactive: string[] }> = {
-  "Director of Demand Planning": {
+  "Demand Planner": {
     autonomous: [
-      "Multi-agent anomaly detection across demand signals",
-      "Automated root cause and driver analysis per region",
-      "Revenue-at-stake quantification with prescribed actions",
-      "Executive briefing pack with cross-department contentions",
+      "Multi-agent anomaly detection across all department portfolios",
+      "Automated root cause and driver attribution per region and category",
+      "Revenue-at-stake quantification with ranked anomaly prioritization",
+      "Cross-department signal awareness and coordination triggers",
     ],
     interactive: [
       "Conversational demand forecasting and scenario planning",
@@ -37,18 +38,32 @@ export const MODULE_BULLETS: Record<Persona, { autonomous: string[]; interactive
       "Dynamic visualizations with confidence intervals",
     ],
   },
-  "Supply Chain Director": {
+  "Supply Planner": {
     autonomous: [
-      "End-to-end supply chain risk and disruption detection",
-      "Predictive lead-time and inventory optimization scoring",
-      "Cross-functional impact analysis across sourcing and logistics",
-      "Automated action plans with cost-benefit trade-offs",
+      "End-to-end supply chain risk and availability prediction",
+      "Stockout and markdown risk projections across affected lines",
+      "Replenishment and expedite recommendations within guardrails",
+      "Supplier reliability scoring and alternate sourcing triggers",
     ],
     interactive: [
       "Conversational AI for supply chain and logistics queries",
       "Supplier performance and capacity constraint analysis",
       "Scenario modeling for procurement and distribution",
       "Real-time tracking of supply chain health indicators",
+    ],
+  },
+  "Director of Demand Planning": {
+    autonomous: [
+      "Enterprise-level executive briefing pack across all departments",
+      "Cross-department contention identification and resolution",
+      "Consolidated revenue at stake vs protected analysis",
+      "Pending approval queue with cost-benefit recommendations",
+    ],
+    interactive: [
+      "Enterprise portfolio oversight and strategic scenario planning",
+      "Cross-functional impact analysis and resource allocation",
+      "S&OP briefing preparation with automated data synthesis",
+      "Dynamic executive dashboards with materiality-first framing",
     ],
   },
 };

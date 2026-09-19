@@ -97,12 +97,12 @@ export default function RagPipelinePage() {
           <div className="flex items-center gap-3.5">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center backdrop-blur-sm"
               style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
-              <span className="material-icons-outlined text-white" style={{ fontSize: "22px" }}>model_training</span>
+              <span className="material-icons-outlined text-white" style={{ fontSize: "22px" }}>hub</span>
             </div>
             <div>
-              <h2 className="text-lg font-bold mb-0.5 tracking-tight">RAG Pipeline</h2>
+              <h2 className="text-lg font-bold mb-0.5 tracking-tight">Context Enhancement Layer</h2>
               <p className="text-white/60 text-[11px] m-0">
-                Cortex Search — Knowledge Base for Demand Sensing Intelligence
+                Knowledge Graph | Semantic RAG | Persistent Memory | Scratch Pads
               </p>
             </div>
           </div>
@@ -180,16 +180,36 @@ export default function RagPipelinePage() {
               <div className="flex-1 overflow-y-auto rounded-2xl border border-[var(--border-color)] bg-white p-4"
                 style={{ boxShadow: "var(--shadow-sm)" }}>
                 {searchResults.length === 0 && !searching && (
-                  <div className="flex flex-col items-center justify-center h-full text-center">
+                  <div className="flex flex-col items-center justify-center min-h-full py-6 text-center">
                     <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
                       style={{ background: "linear-gradient(135deg, rgba(60,44,218,0.08), rgba(0,184,148,0.08))" }}>
-                      <span className="material-icons-outlined text-[var(--hex-primary)]" style={{ fontSize: "32px" }}>manage_search</span>
+                      <span className="material-icons-outlined text-[var(--hex-primary)]" style={{ fontSize: "32px" }}>hub</span>
                     </div>
-                    <p className="text-[13px] font-medium text-[var(--hex-text)] mb-1">Cortex Search RAG Pipeline</p>
-                    <p className="text-[11px] text-[var(--hex-text-muted)] max-w-sm">
-                      Search across 30 SME-grade documents: SOPs, supplier contracts, governance policies, and research notes powering the Demand Sensing agent.
+                    <p className="text-[13px] font-medium text-[var(--hex-text)] mb-1">Context Enhancement Layer</p>
+                    <p className="text-[11px] text-[var(--hex-text-muted)] max-w-sm mb-4">
+                      Multi-modal context retrieval powering the Demand Sensing Agent via Knowledge Graph traversal, Semantic RAG, Persistent Memory, and dynamic Scratch Pads.
                     </p>
-                    <div className="mt-4 grid grid-cols-1 gap-2 w-full max-w-md">
+                    {/* Capability Cards */}
+                    <div className="grid grid-cols-2 gap-2.5 w-full max-w-lg mb-5">
+                      {[
+                        { icon: "account_tree", label: "Knowledge Graph", desc: "Entity-relationship traversal across demand sensing ontology", color: "#3C2CDA" },
+                        { icon: "psychology", label: "Semantic RAG", desc: "Embedding-based retrieval with contextual re-ranking", color: "#00B894" },
+                        { icon: "memory", label: "Persistent Memory", desc: "Cross-session context continuity for agent reasoning", color: "#F59E0B" },
+                        { icon: "edit_note", label: "Scratch Pads", desc: "Working memory for multi-step analytical workflows", color: "#8B5CF6" },
+                      ].map((cap, i) => (
+                        <div key={i} className="flex items-start gap-2.5 p-3 rounded-xl border border-[var(--border-color)] bg-[var(--hex-surface-1)] text-left">
+                          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                            style={{ background: `${cap.color}12` }}>
+                            <span className="material-icons-outlined" style={{ fontSize: "15px", color: cap.color }}>{cap.icon}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-[var(--hex-text)] m-0 mb-0.5">{cap.label}</p>
+                            <p className="text-[10px] text-[var(--hex-text-muted)] m-0 leading-snug">{cap.desc}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 w-full max-w-md">
                       {["What is the stockout replenishment process?", "Supplier lead times for fresh produce", "AI recommendation confidence policy"].map((q, i) => (
                         <button
                           key={i}

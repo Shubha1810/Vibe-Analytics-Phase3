@@ -2,56 +2,54 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { PERSONAS } from "@/lib/constants";
 import { useApp } from "@/context/AppContext";
 import type {
   OrchestrationEvent,
   OrchestrationResult,
-  AgentNetworkNode,
+  OrchestrationGraph,
+  AgentNetworkNode as GraphNode,
+  OrchestrationEdge,
   ExecReport,
   ReportSection,
   RecommendedAction,
   KeyMetric,
   Anomaly,
   Driver,
+  AnalyticsData,
+  PersonaKey,
+  MultiRunIds,
+  MultiRunResults,
 } from "@/lib/orchestration-types";
+import { PERSONA_KEY_TO_TITLE, PERSONA_TITLE_TO_KEY } from "@/lib/orchestration-types";
+import type { Persona } from "@/lib/constants";
 
-// ── Hardcoded Agent Network Topology ──────────────────────────────────────────
+import { StepHeader } from "@/components/autonomous/StepHeader";
+import { AnomalyTable } from "@/components/autonomous/AnomalyTable";
+import { DeviationHeatmap } from "@/components/autonomous/DeviationHeatmap";
+import { VarianceHistogram } from "@/components/autonomous/VarianceHistogram";
+import { DriverAttribution } from "@/components/autonomous/DriverAttribution";
+import { RecoveryTimeline } from "@/components/autonomous/RecoveryTimeline";
+import { BrightwayIntro } from "@/components/autonomous/BrightwayIntro";
+import { PersonaBlurb } from "@/components/autonomous/PersonaBlurb";
+import { PersonaHandoff } from "@/components/autonomous/PersonaHandoff";
+import { CrossDeptSignalStrip } from "@/components/autonomous/CrossDeptSignalStrip";
+import { StockoutRiskTable } from "@/components/autonomous/StockoutRiskTable";
+import { ExecutiveBriefingPack } from "@/components/autonomous/ExecutiveBriefingPack";
+import { ClosingTheLoop } from "@/components/autonomous/ClosingTheLoop";
+import { ChartExplainer } from "@/components/autonomous/ChartExplainer";
+import { HowToReadIt } from "@/components/autonomous/HowToReadIt";
 
-const NETWORK_NODES: AgentNetworkNode[] = [
-  { node_name: "master_plan", agent_name: "MASTER_ORCHESTRATOR_AUTO_DEMANDSENSING", wave_no: 0, edges: ["data_gathering"] },
-  { node_name: "data_gathering", agent_name: "DATA_GATHERING_AGENT_AUTO_DEMANDSENSING", wave_no: 1, edges: ["task_trend", "task_dimensional", "task_root_cause", "task_predictive"] },
-  { node_name: "task_trend", agent_name: "TREND_DISCOVERY_AGENT_AUTO_DEMANDSENSING", wave_no: 2, edges: ["wave2_join"] },
-  { node_name: "task_dimensional", agent_name: "DIMENSIONAL_ANALYSIS_AGENT_AUTO_DEMANDSENSING", wave_no: 2, edges: ["wave2_join"] },
-  { node_name: "task_root_cause", agent_name: "ROOT_CAUSE_AGENT_AUTO_DEMANDSENSING", wave_no: 2, edges: ["wave2_join"] },
-  { node_name: "task_predictive", agent_name: "PREDICTIVE_AGENT_AUTO_DEMANDSENSING", wave_no: 2, edges: ["wave2_join"] },
-  { node_name: "wave2_join", agent_name: null, wave_no: 2, edges: ["prescriptive"], is_control: true },
-  { node_name: "prescriptive", agent_name: "PRESCRIPTIVE_AGENT_AUTO_DEMANDSENSING", wave_no: 2, edges: ["validation_gate"] },
-  { node_name: "validation_gate", agent_name: null, wave_no: 3, edges: ["exec_report"], is_control: true },
-  { node_name: "exec_report", agent_name: "EXEC_REPORT_AGENT_AUTO_DEMANDSENSING", wave_no: 5, edges: [] },
-];
+// ── Constants ────────────────────────────────────────────────────────────────
 
-function statusColor(status: string | undefined): string {
-  switch (status) {
-    case "RUNNING": return "var(--hex-primary)";
-    case "ok": return "#10B981";
-    case "error": return "#EF4444";
-    case "timeout": return "#F97316";
-    case "degraded": return "#EAB308";
-    default: return "#94A3B8";
-  }
-}
+const PERSONA_KEYS: PersonaKey[] = ["demand_planner", "supply_planner", "director"];
 
-function statusBg(status: string | undefined): string {
-  switch (status) {
-    case "RUNNING": return "rgba(60,44,218,0.1)";
-    case "ok": return "rgba(16,185,129,0.1)";
-    case "error": return "rgba(239,68,68,0.1)";
-    case "timeout": return "rgba(249,115,22,0.1)";
-    case "degraded": return "rgba(234,179,8,0.1)";
-    default: return "rgba(148,163,184,0.08)";
-  }
-}
+const PERSONA_TAB_LABELS: Record<PersonaKey, { label: string; steps: string }> = {
+  demand_planner: { label: "Demand Planner", steps: "Steps 1–2" },
+  supply_planner: { label: "Supply Planner", steps: "Steps 3–4" },
+  director: { label: "Director", steps: "Step 5" },
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDuration(ms: number | null | undefined): string {
   if (ms == null) return "";
@@ -59,34 +57,476 @@ function formatDuration(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function shortName(agentName: string | null): string {
-  if (!agentName) return "";
-  return agentName.replace(/_AUTO_DEMANDSENSING$/, "").replace(/_/g, " ");
-}
-
 function formatUsd(v: number | null | undefined): string {
   if (v == null) return "—";
+  if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
   return "$" + v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+function formatSectionNarrative(sections: ReportSection[]): string {
+  if (!sections.length) return "";
+  const headlines = sections
+    .map((s) => s.headline)
+    .filter(Boolean)
+    .join(" · ");
+  const topAnomalies = sections
+    .flatMap((s) => s.anomalies || [])
+    .sort((a, b) => Math.abs(b.deviation_pct ?? 0) - Math.abs(a.deviation_pct ?? 0))
+    .slice(0, 3)
+    .map((a) => `${a.anomaly ?? "Unknown"} (${a.severity ?? "?"}, ${((a.deviation_pct ?? 0) * 100).toFixed(1)}% deviation)`)
+    .join("; ");
+  const metricChanges = sections
+    .flatMap((s) => s.key_metrics || [])
+    .map((m) => `${m.metric}: ${m.value}`)
+    .join(", ");
+  const parts: string[] = [];
+  if (headlines) parts.push(headlines);
+  if (topAnomalies) parts.push(`Top anomalies: ${topAnomalies}.`);
+  if (metricChanges) parts.push(`Key metrics — ${metricChanges}.`);
+  return parts.join(" ") || "";
+}
+
+// ── Dynamic DAG Layout ───────────────────────────────────────────────────────
+
+const NW = 150;
+const NH = 52;
+
+interface LayoutNode {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  isControl: boolean;
+}
+interface LayoutEdge {
+  id: string;
+  from: string;
+  to: string;
+}
+
+function formatNodeLabel(nodeName: string): string {
+  return nodeName
+    .replace(/_/g, " ")
+    .replace(/\btask\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function layoutGraph(graph: OrchestrationGraph | null): {
+  nodes: LayoutNode[];
+  edges: LayoutEdge[];
+  retryEdges: LayoutEdge[];
+  width: number;
+  height: number;
+} {
+  if (!graph || !graph.nodes.length)
+    return { nodes: [], edges: [], retryEdges: [], width: 860, height: 200 };
+
+  const nodeMap = new Map<string, GraphNode>();
+  for (const n of graph.nodes) nodeMap.set(n.node_name, n);
+
+  // Build forward-only adjacency (exclude back-edges via wave_no)
+  const adj = new Map<string, string[]>();
+  const inDeg = new Map<string, number>();
+  for (const n of graph.nodes) {
+    adj.set(n.node_name, []);
+    inDeg.set(n.node_name, 0);
+  }
+  for (const e of graph.edges) {
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    if (src && tgt && src.wave_no <= tgt.wave_no) {
+      adj.get(e.source)!.push(e.target);
+      inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1);
+    }
+  }
+
+  // Longest-path BFS to assign depth
+  const depth = new Map<string, number>();
+  for (const n of graph.nodes) depth.set(n.node_name, 0);
+
+  // Topological iteration (iterative)
+  const queue: string[] = [];
+  for (const n of graph.nodes) {
+    if ((inDeg.get(n.node_name) || 0) === 0) queue.push(n.node_name);
+  }
+  const order: string[] = [];
+  const inDegCopy = new Map(inDeg);
+  while (queue.length) {
+    const cur = queue.shift()!;
+    order.push(cur);
+    for (const nb of adj.get(cur) || []) {
+      const d = (depth.get(cur) || 0) + 1;
+      if (d > (depth.get(nb) || 0)) depth.set(nb, d);
+      inDegCopy.set(nb, (inDegCopy.get(nb) || 1) - 1);
+      if (inDegCopy.get(nb) === 0) queue.push(nb);
+    }
+  }
+
+  // Group nodes into rows by depth
+  const rows = new Map<number, string[]>();
+  for (const n of graph.nodes) {
+    const d = depth.get(n.node_name) || 0;
+    if (!rows.has(d)) rows.set(d, []);
+    rows.get(d)!.push(n.node_name);
+  }
+
+  const CANVAS_W = 860;
+  const ROW_GAP_Y = 110;
+  const COL_GAP = 30;
+  const layoutNodes: LayoutNode[] = [];
+  let maxRow = 0;
+
+  for (const [d, ids] of rows) {
+    if (d > maxRow) maxRow = d;
+    const totalW = ids.length * NW + (ids.length - 1) * COL_GAP;
+    const startX = Math.max(10, (CANVAS_W - totalW) / 2);
+    ids.forEach((id, i) => {
+      const gn = nodeMap.get(id)!;
+      layoutNodes.push({
+        id,
+        label: formatNodeLabel(id),
+        x: startX + i * (NW + COL_GAP),
+        y: d * ROW_GAP_Y + 20,
+        isControl: gn.kind === "control",
+      });
+    });
+  }
+
+  // Forward edges (follow the main flow)
+  const layoutEdges: LayoutEdge[] = [];
+  for (const e of graph.edges) {
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    if (src && tgt && src.wave_no <= tgt.wave_no) {
+      layoutEdges.push({ id: `${e.source}->${e.target}`, from: e.source, to: e.target });
+    }
+  }
+
+  // Back-edges (retry flows) — included but marked
+  const retryEdges: LayoutEdge[] = [];
+  for (const e of graph.edges) {
+    const src = nodeMap.get(e.source);
+    const tgt = nodeMap.get(e.target);
+    if (src && tgt && src.wave_no > tgt.wave_no) {
+      retryEdges.push({ id: `retry-${e.source}->${e.target}`, from: e.source, to: e.target });
+    }
+  }
+
+  return {
+    nodes: layoutNodes,
+    edges: layoutEdges,
+    retryEdges,
+    width: CANVAS_W,
+    height: (maxRow + 1) * ROW_GAP_Y + 60,
+  };
+}
+
+function buildEdgePath(
+  fromId: string,
+  toId: string,
+  nodeMap: Map<string, LayoutNode>,
+): string {
+  const a = nodeMap.get(fromId);
+  const b = nodeMap.get(toId);
+  if (!a || !b) return "";
+  const x1 = a.x + NW / 2;
+  const y1 = a.y + NH;
+  const x2 = b.x + NW / 2;
+  const y2 = b.y;
+  const cy1 = y1 + (y2 - y1) * 0.4;
+  const cy2 = y1 + (y2 - y1) * 0.6;
+  return `M${x1},${y1} C${x1},${cy1} ${x2},${cy2} ${x2},${y2}`;
+}
+
+function buildRetryEdgePath(
+  fromId: string,
+  toId: string,
+  nodeMap: Map<string, LayoutNode>,
+  canvasW: number,
+): string {
+  const a = nodeMap.get(fromId);
+  const b = nodeMap.get(toId);
+  if (!a || !b) return "";
+  const x1 = a.x + NW;
+  const y1 = a.y + NH / 2;
+  const x2 = b.x + NW;
+  const y2 = b.y + NH / 2;
+  const loopX = Math.min(canvasW - 20, Math.max(x1, x2) + 60);
+  return `M${x1},${y1} C${loopX},${y1} ${loopX},${y2} ${x2},${y2}`;
+}
+
+// ── AgentNetworkGraph ────────────────────────────────────────────────────────
+
+function AgentNetworkGraph({
+  eventMap,
+  pipelineRunning,
+  graphData,
+}: {
+  eventMap: Map<string, OrchestrationEvent>;
+  pipelineRunning: boolean;
+  graphData: OrchestrationGraph | null;
+}) {
+  const { nodes, edges, retryEdges, width, height } = layoutGraph(graphData);
+  const nodeMapById = new Map<string, LayoutNode>();
+  for (const n of nodes) nodeMapById.set(n.id, n);
+
+  const completedCount = Array.from(eventMap.values()).filter(
+    (e) => e.STATUS === "ok",
+  ).length;
+  const activeCount = Array.from(eventMap.values()).filter(
+    (e) => e.STATUS === "RUNNING",
+  ).length;
+
+  return (
+    <div
+      className="rounded-2xl border overflow-hidden"
+      style={{
+        borderColor: "rgba(0,255,255,0.15)",
+        background: "linear-gradient(135deg, #0a0e1a 0%, #0d1117 50%, #0a0f1e 100%)",
+      }}
+    >
+      <div className="px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: "rgba(0,255,255,0.1)" }}>
+        <div className="flex items-center gap-2">
+          <span style={{ color: "#00e5ff", fontSize: "16px" }}>◈</span>
+          <span className="text-sm font-bold" style={{ color: "#e0f7fa" }}>
+            Live Agent Network
+          </span>
+        </div>
+        <span className="text-xs font-mono" style={{ color: "#80cbc4" }}>
+          {completedCount}/{nodes.length} complete · {activeCount} active
+        </span>
+      </div>
+      <div className="overflow-x-auto p-4">
+        <svg
+          width={width}
+          height={height}
+          viewBox={`0 0 ${width} ${height}`}
+          className="mx-auto block"
+        >
+          <defs>
+            <filter id="gcyan">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#00e5ff" floodOpacity="0.6" />
+            </filter>
+            <filter id="ggreen">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#10b981" floodOpacity="0.6" />
+            </filter>
+            <filter id="gred">
+              <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#ef4444" floodOpacity="0.6" />
+            </filter>
+            <marker id="arrowRetry" viewBox="0 0 10 8" refX="9" refY="4" markerWidth="7" markerHeight="5" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 4 L 0 8 z" fill="#f59e0b" opacity="0.7" />
+            </marker>
+          </defs>
+
+          {/* Edges */}
+          {edges.map((e) => {
+            const fromEv = eventMap.get(e.from);
+            const toEv = eventMap.get(e.to);
+            const fromDone = fromEv?.STATUS === "ok";
+            const toDone = toEv?.STATUS === "ok";
+            const toRunning = toEv?.STATUS === "RUNNING";
+            const path = buildEdgePath(e.from, e.to, nodeMapById);
+
+            if (fromDone && toDone) {
+              return (
+                <path key={e.id} d={path} fill="none" stroke="#10b981" strokeWidth={2} opacity={0.8} />
+              );
+            }
+            if (toRunning) {
+              return (
+                <path
+                  key={e.id}
+                  d={path}
+                  fill="none"
+                  stroke="#00e5ff"
+                  strokeWidth={2}
+                  strokeDasharray="8 4"
+                  opacity={0.9}
+                >
+                  <animate attributeName="stroke-dashoffset" from="24" to="0" dur="0.8s" repeatCount="indefinite" />
+                </path>
+              );
+            }
+            return (
+              <g key={e.id}>
+                <path d={path} fill="none" stroke="#334155" strokeWidth={1.5} strokeDasharray="4 4" opacity={0.5} />
+                <circle r="2" fill="#64748b" opacity={0.6}>
+                  <animateMotion dur="3s" repeatCount="indefinite" path={path} />
+                </circle>
+              </g>
+            );
+          })}
+
+          {/* Retry edges — styled as dashed amber curves looping right */}
+          {retryEdges.map((e) => {
+            const path = buildRetryEdgePath(e.from, e.to, nodeMapById, width);
+            return (
+              <g key={e.id}>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth={1.5}
+                  strokeDasharray="6 4"
+                  opacity={0.5}
+                  markerEnd="url(#arrowRetry)"
+                />
+                <text dy={-6} fill="#f59e0b" fontSize={8} fontFamily="monospace" opacity={0.6}>
+                  <textPath href={`#${e.id}-path`} startOffset="50%" textAnchor="middle">
+                    retry on failure
+                  </textPath>
+                </text>
+                <path id={`${e.id}-path`} d={path} fill="none" stroke="none" />
+              </g>
+            );
+          })}
+
+          {/* Nodes */}
+          {nodes.map((n) => {
+            const ev = eventMap.get(n.id);
+            const st = ev?.STATUS;
+            const isRunning = st === "RUNNING";
+            const isDone = st === "ok";
+            const isError = st === "error" || st === "timeout";
+
+            let stroke = "#334155";
+            let fill = "rgba(15,23,42,0.8)";
+            let textColor = "#94a3b8";
+            let filter: string | undefined;
+
+            if (isRunning) {
+              stroke = "#00e5ff";
+              fill = "rgba(0,229,255,0.08)";
+              textColor = "#e0f7fa";
+              filter = "url(#gcyan)";
+            } else if (isDone) {
+              stroke = "#10b981";
+              fill = "rgba(16,185,129,0.08)";
+              textColor = "#a7f3d0";
+              filter = "url(#ggreen)";
+            } else if (isError) {
+              stroke = "#ef4444";
+              fill = "rgba(239,68,68,0.08)";
+              textColor = "#fca5a5";
+              filter = "url(#gred)";
+            }
+
+            const statusLine = isRunning
+              ? "⚡ running…"
+              : isDone
+              ? `✓ ${formatDuration(ev?.DURATION_MS)}`
+              : isError
+              ? `✗ ${ev?.ERROR_MSG?.slice(0, 30) || st}`
+              : "○ idle";
+
+            return (
+              <g key={n.id}>
+                <rect
+                  x={n.x}
+                  y={n.y}
+                  width={NW}
+                  height={NH}
+                  rx={10}
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth={isRunning || isDone ? 2 : 1}
+                  filter={filter}
+                >
+                  {isRunning && (
+                    <animate attributeName="stroke-opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite" />
+                  )}
+                  {!isRunning && !isDone && !isError && (
+                    <animate attributeName="stroke-opacity" values="0.3;0.7;0.3" dur="3s" repeatCount="indefinite" />
+                  )}
+                </rect>
+                <text
+                  x={n.x + NW / 2}
+                  y={n.y + 20}
+                  textAnchor="middle"
+                  fill={textColor}
+                  fontSize={11}
+                  fontWeight={600}
+                  fontFamily="system-ui, sans-serif"
+                >
+                  {n.isControl ? `⊘ ${n.label}` : n.label}
+                </text>
+                <text
+                  x={n.x + NW / 2}
+                  y={n.y + 38}
+                  textAnchor="middle"
+                  fill={textColor}
+                  fontSize={9}
+                  fontFamily="monospace"
+                  opacity={0.7}
+                >
+                  {statusLine}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
 
 export default function AutonomousPage() {
   const {
-    runId, setRunId,
-    orchestrationStatus, setOrchestrationStatus,
-    nodeEvents, setNodeEvents,
-    orchestrationResult, setOrchestrationResult,
-    selectedPersonas, setSelectedPersonas,
-    orchestrationError, setOrchestrationError,
+    persona,
+    setPersona,
+    runId,
+    setRunId,
+    runIds,
+    setRunIds,
+    orchestrationStatus,
+    setOrchestrationStatus,
+    nodeEvents,
+    setNodeEvents,
+    orchestrationResult,
+    setOrchestrationResult,
+    orchestrationResults,
+    setOrchestrationResults,
+    activePersonaKey,
+    setActivePersonaKey,
+    orchestrationError,
+    setOrchestrationError,
     resetAutonomous,
   } = useApp();
 
   const [elapsed, setElapsed] = useState(0);
-  const eventsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const resultIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const elapsedIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [analyticsCache, setAnalyticsCache] = useState<Partial<Record<PersonaKey, AnalyticsData>>>({});
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [graphData, setGraphData] = useState<OrchestrationGraph | null>(null);
+
+  const eventsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resultIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number | null>(null);
+
+  // Fetch graph topology on mount
+  useEffect(() => {
+    api.getOrchestrationGraph().then(setGraphData).catch(() => {});
+  }, []);
+
+  // Sync activePersonaKey ↔ global persona dropdown
+  useEffect(() => {
+    const expected = PERSONA_KEY_TO_TITLE[activePersonaKey] as Persona;
+    if (persona !== expected) {
+      setPersona(expected);
+    }
+  }, [activePersonaKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const key = PERSONA_TITLE_TO_KEY[persona];
+    if (key && key !== activePersonaKey) {
+      setActivePersonaKey(key);
+    }
+  }, [persona]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const stopPolling = useCallback(() => {
     if (eventsIntervalRef.current) { clearInterval(eventsIntervalRef.current); eventsIntervalRef.current = null; }
@@ -94,56 +534,96 @@ export default function AutonomousPage() {
     if (elapsedIntervalRef.current) { clearInterval(elapsedIntervalRef.current); elapsedIntervalRef.current = null; }
   }, []);
 
-  // Poll events
-  const pollEvents = useCallback(async (rid: string) => {
+  // Poll events from ALL run_ids and merge
+  const pollAllEvents = useCallback(async () => {
+    const ids = Object.values(runIds).filter(Boolean) as string[];
+    if (!ids.length) return;
     try {
-      const events = await api.getOrchestrationEvents(rid);
-      setNodeEvents(events);
-    } catch { /* ignore transient failures */ }
-  }, [setNodeEvents]);
+      const allEvents = await Promise.all(ids.map((rid) => api.getOrchestrationEvents(rid)));
+      const merged = allEvents.flat();
+      setNodeEvents(merged);
+    } catch { /* transient */ }
+  }, [runIds, setNodeEvents]);
 
-  // Poll result
-  const pollResult = useCallback(async (rid: string) => {
+  // Poll results for all 3 run_ids
+  const pollAllResults = useCallback(async () => {
+    const entries = Object.entries(runIds) as [PersonaKey, string | null][];
+    const active = entries.filter(([, rid]) => rid != null) as [PersonaKey, string][];
+    if (!active.length) return;
+
     try {
-      const result = await api.getOrchestrationResult(rid);
-      setOrchestrationResult(result);
-      if (result.status === "COMPLETED") {
+      const results = await Promise.all(
+        active.map(async ([key, rid]) => {
+          const r = await api.getOrchestrationResult(rid);
+          return [key, r] as [PersonaKey, OrchestrationResult];
+        }),
+      );
+
+      let allDone = true;
+      let anyFailed = false;
+      let failMsg = "";
+
+      for (const [key, r] of results) {
+        setOrchestrationResults((prev: MultiRunResults) => ({ ...prev, [key]: r }));
+        if (r.status === "FAILED") {
+          anyFailed = true;
+          failMsg = r.error_message || "Pipeline failed";
+        }
+        if (r.status !== "COMPLETED" && r.status !== "FAILED") {
+          allDone = false;
+        }
+      }
+
+      if (anyFailed) {
+        setOrchestrationStatus("failed");
+        setOrchestrationError(failMsg);
+        stopPolling();
+      } else if (allDone) {
         setOrchestrationStatus("completed");
         stopPolling();
-      } else if (result.status === "FAILED") {
-        setOrchestrationStatus("failed");
-        setOrchestrationError(result.error_message || "Pipeline failed");
-        console.error("Orchestration failed:", result.error_message);
-        stopPolling();
       }
-    } catch { /* ignore transient */ }
-  }, [setOrchestrationResult, setOrchestrationStatus, setOrchestrationError, stopPolling]);
+    } catch { /* transient */ }
+  }, [runIds, setOrchestrationResults, setOrchestrationStatus, setOrchestrationError, stopPolling]);
 
   // Start polling when running
   useEffect(() => {
-    if (orchestrationStatus === "running" && runId) {
+    if (orchestrationStatus === "running") {
       startTimeRef.current = Date.now();
       setElapsed(0);
       elapsedIntervalRef.current = setInterval(() => {
         setElapsed(Math.floor((Date.now() - (startTimeRef.current || Date.now())) / 1000));
       }, 1000);
-      eventsIntervalRef.current = setInterval(() => pollEvents(runId), 2500);
-      resultIntervalRef.current = setInterval(() => pollResult(runId), 4000);
-      // initial fetch
-      pollEvents(runId);
-      pollResult(runId);
+      eventsIntervalRef.current = setInterval(pollAllEvents, 2500);
+      resultIntervalRef.current = setInterval(pollAllResults, 4000);
+      pollAllEvents();
+      pollAllResults();
     }
     return stopPolling;
-  }, [orchestrationStatus, runId, pollEvents, pollResult, stopPolling]);
+  }, [orchestrationStatus, pollAllEvents, pollAllResults, stopPolling]);
+
+  // Fetch analytics when completed
+  useEffect(() => {
+    if (orchestrationStatus !== "completed") return;
+    if (analyticsCache[activePersonaKey]) return;
+
+    setAnalyticsLoading(true);
+    const personaTitle = PERSONA_KEY_TO_TITLE[activePersonaKey];
+    api
+      .getAutonomousAnalytics(personaTitle)
+      .then((data) => {
+        setAnalyticsCache((prev) => ({ ...prev, [activePersonaKey]: data }));
+      })
+      .catch(() => {})
+      .finally(() => setAnalyticsLoading(false));
+  }, [orchestrationStatus, activePersonaKey, analyticsCache]);
 
   // Submit handler
   async function handleSubmit() {
-    if (selectedPersonas.length === 0) return;
     setOrchestrationStatus("submitting");
     setOrchestrationError(null);
     try {
-      const { run_id } = await api.submitOrchestration(selectedPersonas);
-      setRunId(run_id);
+      const resp = await api.submitAllOrchestrations();
+      setRunIds(resp.run_ids);
       setOrchestrationStatus("running");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to start orchestration";
@@ -152,19 +632,14 @@ export default function AutonomousPage() {
     }
   }
 
-  function togglePersona(p: string) {
-    setSelectedPersonas((prev: string[]) =>
-      prev.includes(p) ? prev.filter((x: string) => x !== p) : [...prev, p]
-    );
-  }
-
   function handleReset() {
     stopPolling();
     resetAutonomous();
     setElapsed(0);
+    setAnalyticsCache({});
   }
 
-  // Build event map for quick lookup
+  // Build event map: latest event per NODE_NAME by EVENT_AT timestamp
   const eventMap = new Map<string, OrchestrationEvent>();
   for (const e of nodeEvents) {
     const existing = eventMap.get(e.NODE_NAME);
@@ -173,69 +648,13 @@ export default function AutonomousPage() {
     }
   }
 
-  // ── IDLE STATE ──────────────────────────────────────────────────────────────
-  if (orchestrationStatus === "idle") {
-    return (
-      <div className="max-w-4xl mx-auto animate-fade-in pt-8">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))", boxShadow: "0 4px 16px rgba(60,44,218,0.25)" }}>
-            <span className="material-icons-outlined text-white" style={{ fontSize: "32px" }}>precision_manufacturing</span>
-          </div>
-          <h1 className="text-2xl font-bold text-[var(--hex-text)] mb-2">Autonomous Analysis</h1>
-          <p className="text-sm text-[var(--hex-text-dim)]">
-            Multi-agent demand sensing pipeline — select personas and run the autonomous analysis
-          </p>
-        </div>
+  const isIdle = orchestrationStatus === "idle";
+  const isRunning = orchestrationStatus === "running" || orchestrationStatus === "submitting";
+  const isCompleted = orchestrationStatus === "completed";
+  const isFailed = orchestrationStatus === "failed";
 
-        <div className="rounded-2xl border border-[var(--border-color)] p-6 mb-6"
-          style={{ background: "var(--hex-card-bg)" }}>
-          <h3 className="text-sm font-semibold text-[var(--hex-text)] mb-4">Select Personas</h3>
-          <div className="space-y-3">
-            {PERSONAS.map((p) => (
-              <label key={p} className="flex items-center gap-3 cursor-pointer p-3 rounded-xl transition-colors hover:bg-[var(--hex-primary)]/5">
-                <input
-                  type="checkbox"
-                  checked={selectedPersonas.includes(p)}
-                  onChange={() => togglePersona(p)}
-                  className="w-5 h-5 rounded accent-[var(--hex-primary)]"
-                />
-                <span className="text-sm font-medium text-[var(--hex-text)]">{p}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex justify-center">
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={selectedPersonas.length === 0}
-            className="inline-flex items-center gap-2 px-8 py-3 rounded-xl text-white font-semibold text-sm transition-all hover:shadow-lg active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed border-none cursor-pointer"
-            style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))" }}
-          >
-            <span className="material-icons-outlined" style={{ fontSize: "20px" }}>play_arrow</span>
-            Run Pipeline
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── SUBMITTING STATE ────────────────────────────────────────────────────────
-  if (orchestrationStatus === "submitting") {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center animate-pulse">
-          <div className="w-10 h-10 border-4 border-[var(--hex-primary)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[var(--hex-text-dim)] text-sm font-medium">Submitting orchestration...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── FAILED STATE ────────────────────────────────────────────────────────────
-  if (orchestrationStatus === "failed") {
+  // ── FAILED STATE ─────────────────────────────────────────────────────────────
+  if (isFailed) {
     return (
       <div className="max-w-lg mx-auto animate-fade-in pt-16">
         <div className="rounded-2xl border border-red-200 p-8 text-center" style={{ background: "rgba(239,68,68,0.04)" }}>
@@ -244,9 +663,12 @@ export default function AutonomousPage() {
           <p className="text-sm text-[var(--hex-text-dim)] mb-6">
             {orchestrationError || "An error occurred — please retry."}
           </p>
-          <button type="button" onClick={handleReset}
+          <button
+            type="button"
+            onClick={handleReset}
             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-medium border-none cursor-pointer transition-all hover:opacity-90"
-            style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))" }}>
+            style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))" }}
+          >
             <span className="material-icons-outlined" style={{ fontSize: "16px" }}>refresh</span>
             Run New Analysis
           </button>
@@ -255,441 +677,314 @@ export default function AutonomousPage() {
     );
   }
 
-  // ── RUNNING STATE — Agent Network Visualization ─────────────────────────────
-  if (orchestrationStatus === "running") {
-    const waves = [0, 1, 2, 3, 5];
-    const waveLabels: Record<number, string> = { 0: "Plan", 1: "Gather", 2: "Analyze", 3: "Validate", 5: "Report" };
+  // ── COMPLETED STATE — Per-Persona Report ──────────────────────────────────
+  if (isCompleted) {
+    const activeResult = orchestrationResults[activePersonaKey];
+    const execReport = activeResult?.exec_report;
+    const summary = execReport?.enterprise_summary;
+    const sections = execReport?.sections || [];
+    const analytics = analyticsCache[activePersonaKey];
+    const kpis = analytics?.kpis;
+    const narrative = activeResult?.result?.narrative as string | undefined;
+
+    const formattedNarrative = formatSectionNarrative(sections);
+
+    const personaTitle = PERSONA_KEY_TO_TITLE[activePersonaKey];
+
+    const isDataGap = sections.some((s) => s.headline?.startsWith("DATA GAP:"));
+
+    function handleSwitchPersona(targetPersona: string) {
+      const keyMap: Record<string, PersonaKey> = {
+        "Demand Planner": "demand_planner",
+        "Supply Planner": "supply_planner",
+        "Director of Demand Planning": "director",
+      };
+      const k = keyMap[targetPersona];
+      if (k) setActivePersonaKey(k);
+    }
 
     return (
-      <div className="max-w-6xl mx-auto animate-fade-in pt-6">
+      <div className="max-w-6xl mx-auto animate-fade-in pt-6 pb-12">
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-xl font-bold text-[var(--hex-text)]">Agent Network</h1>
-            <p className="text-xs text-[var(--hex-text-dim)] mt-1">Orchestration in progress — run ID: {runId}</p>
+            <h1 className="text-2xl font-bold text-[var(--hex-text)]">Autonomous Demand Sensing Report</h1>
+            {execReport?.as_of && (
+              <p className="text-xs text-[var(--hex-text-dim)] mt-1">As of {execReport.as_of}</p>
+            )}
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--border-color)]" style={{ background: "var(--hex-card-bg)" }}>
-              <span className="material-icons-outlined text-[var(--hex-primary)]" style={{ fontSize: "18px" }}>timer</span>
-              <span className="text-sm font-mono font-semibold text-[var(--hex-text)]">
-                {Math.floor(elapsed / 60)}:{(elapsed % 60).toString().padStart(2, "0")}
-              </span>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-white text-sm font-medium border-none cursor-pointer transition-all hover:opacity-90"
+            style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))" }}
+          >
+            <span className="material-icons-outlined" style={{ fontSize: "16px" }}>refresh</span>
+            Run New Analysis
+          </button>
         </div>
 
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {waves.map((waveNo) => {
-            const waveNodes = NETWORK_NODES.filter((n) => n.wave_no === waveNo && n.node_name !== "wave2_join");
+        {/* Executive Summary Banner */}
+        <div
+          className="rounded-2xl p-6 mb-8 text-white"
+          style={{ background: "linear-gradient(135deg, #1a237e 0%, #3C2CDA 50%, #6366F1 100%)" }}
+        >
+          <p className="text-sm leading-relaxed opacity-95">
+            This report consolidates signals from POS data, weather feeds, competitor pricing, promotional
+            calendars, and digital trends across Brightway Retail&apos;s $2.2B portfolio. The autonomous agent
+            network scanned 40 stores across 5 regions and 3 departments to detect demand anomalies, explain
+            their root causes, predict their trajectory, and recommend sized actions — condensing what would
+            normally take 7–14 days of cross-team analysis into one automated run.
+          </p>
+        </div>
+
+        {/* BrightwayIntro */}
+        <BrightwayIntro />
+
+        {/* Persona Tabs */}
+        <div className="flex gap-1 mb-6 border-b border-[var(--border-color)]">
+          {PERSONA_KEYS.map((k) => {
+            const tab = PERSONA_TAB_LABELS[k];
+            const isActive = k === activePersonaKey;
             return (
-              <div key={waveNo} className="flex flex-col gap-3 min-w-[180px]">
-                <div className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider text-center mb-1">
-                  Wave {waveNo} — {waveLabels[waveNo]}
-                </div>
-                {waveNodes.map((node) => {
-                  const event = eventMap.get(node.node_name);
-                  const st = event?.STATUS;
-                  const isRunning = st === "RUNNING";
-                  return (
-                    <div key={node.node_name}
-                      className="rounded-xl border-2 p-4 transition-all"
-                      style={{
-                        borderColor: statusColor(st),
-                        background: statusBg(st),
-                        animation: isRunning ? "pulse 2s ease-in-out infinite" : undefined,
-                      }}>
-                      {node.is_control ? (
-                        <div className="flex items-center gap-2">
-                          <span className="material-icons-outlined" style={{ fontSize: "20px", color: statusColor(st) }}>
-                            {node.node_name === "validation_gate" ? "verified_user" : "call_merge"}
-                          </span>
-                          <span className="text-xs font-semibold text-[var(--hex-text)]">
-                            {node.node_name === "validation_gate" ? "Validation Gate" : node.node_name}
-                          </span>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="text-xs font-bold text-[var(--hex-text)] mb-1 truncate" title={node.agent_name || ""}>
-                            {shortName(node.agent_name)}
-                          </div>
-                          <div className="flex items-center justify-between text-[10px] text-[var(--hex-text-dim)]">
-                            <span className="uppercase font-semibold" style={{ color: statusColor(st) }}>
-                              {st || "idle"}
-                            </span>
-                            {event?.DURATION_MS != null && (
-                              <span className="font-mono">{formatDuration(event.DURATION_MS)}</span>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+              <button
+                key={k}
+                type="button"
+                onClick={() => setActivePersonaKey(k)}
+                className="px-4 py-2.5 text-sm font-medium transition-all border-none cursor-pointer"
+                style={{
+                  background: isActive ? "var(--hex-card-bg)" : "transparent",
+                  color: isActive ? "var(--hex-primary)" : "var(--hex-text-dim)",
+                  borderBottom: isActive ? "2px solid var(--hex-primary)" : "2px solid transparent",
+                }}
+              >
+                {tab.label}
+                <span className="text-[10px] ml-1.5 opacity-60">{tab.steps}</span>
+              </button>
             );
           })}
         </div>
 
-        {/* Status legend */}
-        <div className="flex gap-4 justify-center mt-6 text-[10px] text-[var(--hex-text-dim)]">
-          {[["idle", "#94A3B8"], ["running", "var(--hex-primary)"], ["ok", "#10B981"], ["error", "#EF4444"], ["timeout", "#F97316"], ["degraded", "#EAB308"]].map(([label, color]) => (
-            <div key={label} className="flex items-center gap-1">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ background: color }} />
-              <span className="uppercase font-semibold">{label}</span>
+        {/* DATA GAP callout */}
+        {isDataGap && (
+          <div className="rounded-xl p-4 border border-amber-300 flex items-start gap-3 mb-6" style={{ background: "rgba(245,158,11,0.08)" }}>
+            <span className="material-icons-outlined text-amber-500 mt-0.5" style={{ fontSize: "20px" }}>info</span>
+            <div>
+              <div className="text-xs font-bold text-amber-700 uppercase mb-1">Data Gap Detected</div>
+              <p className="text-sm text-[var(--hex-text)]">
+                {sections.find((s) => s.headline?.startsWith("DATA GAP:"))?.headline}
+              </p>
             </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ── COMPLETED STATE — Executive Briefing Report ─────────────────────────────
-  const result = orchestrationResult;
-  const execReport = result?.exec_report;
-
-  // Fallback: no exec_report but completed => show narrative
-  if (!execReport && result?.status === "COMPLETED") {
-    const narrative = result?.result?.narrative;
-    return (
-      <div className="max-w-4xl mx-auto animate-fade-in pt-8">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-[var(--hex-text)]">Analysis Complete</h1>
-        </div>
-        {narrative ? (
-          <div className="rounded-2xl border border-[var(--border-color)] p-6" style={{ background: "var(--hex-card-bg)" }}>
-            <p className="text-sm text-[var(--hex-text)] whitespace-pre-wrap leading-relaxed">{narrative}</p>
           </div>
-        ) : (
-          <p className="text-sm text-[var(--hex-text-dim)] text-center">No report data available.</p>
         )}
-        <div className="flex justify-center mt-8">
-          <button type="button" onClick={handleReset}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-white text-sm font-medium border-none cursor-pointer"
-            style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))" }}>
-            <span className="material-icons-outlined" style={{ fontSize: "16px" }}>refresh</span>
-            Run New Analysis
-          </button>
-        </div>
+
+        {/* Enterprise Summary KPI Banner */}
+        {kpis && (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+            <KPICard label="Total Anomalies" value={kpis.total_anomalies} icon="warning" subtitle="SKUs deviating >10% from forecast" />
+            <KPICard label="High Impact" value={kpis.high_impact} icon="priority_high" color="#EF4444" subtitle="Revenue at risk exceeds $10K" />
+            <KPICard label="Departments" value={kpis.departments_affected} icon="business" subtitle="Departments with active anomalies" />
+            <KPICard label="Revenue at Stake" value={formatUsd(kpis.revenue_at_stake)} icon="trending_down" color="#EF4444" subtitle="Total revenue exposed to demand deviations" />
+            <KPICard label="Avg Stockout Rate" value={`${(Number(kpis.avg_stockout_rate) * 100).toFixed(1)}%`} icon="inventory" color="#F97316" subtitle="Average out-of-stock percentage across portfolio" />
+            <KPICard label="Units at Risk" value={Number(kpis.total_units_at_risk).toLocaleString()} icon="local_shipping" color="#8B5CF6" subtitle="Total units with potential demand shortfall" />
+          </div>
+        )}
+
+        {/* PersonaBlurb */}
+        <PersonaBlurb persona={personaTitle} />
+
+        {/* Analytics loading indicator */}
+        {analyticsLoading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-8 h-8 border-4 border-[var(--hex-primary)] border-t-transparent rounded-full animate-spin" />
+            <span className="ml-3 text-sm text-[var(--hex-text-dim)]">Loading analytics…</span>
+          </div>
+        )}
+
+        {/* ── Demand Planner (Steps 1-2) ── */}
+        {activePersonaKey === "demand_planner" && analytics && (
+          <>
+            <StepHeader stepNumber={1} title="Detect" subtitle="Multi-signal anomaly detection across all department portfolios — ranked by 11-day revenue impact." />
+            <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
+              The detection engine scans POS, weather, competitor, promotional, and digital signals
+              to surface anomalies ranked by potential revenue impact over an 11-day horizon.
+            </p>
+            <AnomalyTable data={analytics.anomalies} narrative={formattedNarrative || narrative} />
+            <DeviationHeatmap data={analytics.heatmap} narrative={formattedNarrative || narrative} />
+            <VarianceHistogram data={analytics.variance} narrative={formattedNarrative || narrative} />
+            <CrossDeptSignalStrip anomalies={analytics.anomalies} narrative={formattedNarrative || narrative} />
+
+            <StepHeader stepNumber={2} title="Explain" subtitle="Root cause attribution and recovery trajectory for each detected anomaly." />
+            <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
+              Each deviation is decomposed into its contributing drivers — weather, promotions,
+              competitor actions, and digital signals — with confidence-weighted attribution.
+            </p>
+            <DriverAttribution data={analytics.drivers} narrative={formattedNarrative || narrative} />
+            <RecoveryTimeline data={analytics.recovery} narrative={formattedNarrative || narrative} />
+
+            <PersonaHandoff persona="Demand Planner" onSwitchPersona={handleSwitchPersona} />
+          </>
+        )}
+
+        {/* ── Supply Planner (Steps 3-4) ── */}
+        {activePersonaKey === "supply_planner" && analytics && (
+          <>
+            <StepHeader stepNumber={3} title="Predict" subtitle="Forward-looking stockout and markdown risk projections across affected product lines." />
+            <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
+              Detected anomalies are projected forward to estimate stockout probability,
+              markdown exposure, and days-to-impact across all affected SKU categories.
+            </p>
+            <StockoutRiskTable data={analytics.anomalies} narrative={formattedNarrative || narrative} />
+
+            <StepHeader stepNumber={4} title="Act" subtitle="Recommended replenishment and sourcing actions within guardrails." />
+            <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
+              Prescriptive recommendations with cost-benefit analysis, confidence scores,
+              and authority-level tagging for rapid decision-making.
+            </p>
+            {sections.map((s, idx) =>
+              (s.recommended_actions || []).map((action, ai) => (
+                <ActionCard key={`${idx}-${ai}`} action={action} />
+              )),
+            )}
+
+            <PersonaHandoff persona="Supply Planner" onSwitchPersona={handleSwitchPersona} />
+          </>
+        )}
+
+        {/* ── Director (Step 5) ── */}
+        {activePersonaKey === "director" && (
+          <>
+            <StepHeader stepNumber={5} title="Communicate" subtitle="Enterprise-level executive briefing pack consolidating all departmental signals." />
+            <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
+              The consolidated briefing aggregates all anomalies, actions, and contentions
+              across departments for S&amp;OP review and executive sign-off.
+            </p>
+            <ExecutiveBriefingPack
+              summary={summary ?? null}
+              sections={sections}
+              contentions={summary?.cross_department_contentions || []}
+              pendingApprovals={execReport?.pending_approvals || []}
+              narrative={formattedNarrative || narrative}
+            />
+            <ClosingTheLoop stepsCompleted={5} />
+          </>
+        )}
       </div>
     );
   }
 
-  const summary = execReport?.enterprise_summary;
-  const sections = execReport?.sections || [];
-  const pendingApprovals = execReport?.pending_approvals || [];
-  const validation = execReport?.validation_summary;
-  const contentions = summary?.cross_department_contentions || [];
-
+  // ── IDLE / RUNNING STATE ──────────────────────────────────────────────────
   return (
-    <div className="max-w-6xl mx-auto animate-fade-in pt-6 pb-12">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--hex-text)]">Executive Briefing</h1>
-          {execReport?.as_of && (
-            <p className="text-xs text-[var(--hex-text-dim)] mt-1">As of {execReport.as_of}</p>
-          )}
+    <div className="max-w-6xl mx-auto animate-fade-in pt-6">
+      {/* Header banner — matches Interactive Module style */}
+      <div className="rounded-2xl p-5 mb-6 text-white relative overflow-hidden"
+        style={{
+          background: "linear-gradient(135deg, #1a237e 0%, #3C2CDA 30%, #42a5f5 70%, #80d8ff 100%)",
+          boxShadow: "0 4px 20px rgba(26,35,126,0.35)",
+        }}>
+        <div className="absolute top-0 left-12 w-24 h-full opacity-[0.14]"
+          style={{ background: "repeating-linear-gradient(60deg, white 0px, white 2px, transparent 2px, transparent 14px)" }} />
+        <div className="absolute -top-4 -left-4 w-20 h-20 opacity-[0.16]"
+          style={{ background: "white", transform: "rotate(45deg)", borderRadius: "6px" }} />
+        <div className="flex items-center justify-between relative z-10">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center backdrop-blur-sm"
+              style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
+              <span className="material-icons-outlined text-white" style={{ fontSize: "22px" }}>
+                precision_manufacturing
+              </span>
+            </div>
+            <div>
+              <h2 className="text-lg font-bold mb-0.5 tracking-tight">Autonomous Analysis</h2>
+              <p className="text-white/60 text-[11px] m-0">
+                {persona} · Multi-agent demand sensing pipeline
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {isRunning && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg backdrop-blur-sm"
+                style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.2)" }}>
+                <span className="material-icons-outlined text-white/80" style={{ fontSize: "16px" }}>timer</span>
+                <span className="text-sm font-mono font-semibold text-white">
+                  {Math.floor(elapsed / 60)}:{(elapsed % 60).toString().padStart(2, "0")}
+                </span>
+              </div>
+            )}
+            {!isIdle && (
+              <button
+                type="button"
+                onClick={handleReset}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[11px] font-semibold cursor-pointer border-none hover:opacity-90 transition-all"
+                style={{ background: "rgba(26,35,126,0.5)", border: "1px solid rgba(255,255,255,0.3)" }}
+              >
+                <span className="material-icons-outlined" style={{ fontSize: "14px" }}>refresh</span>
+                Reset
+              </button>
+            )}
+            {isIdle && (
+              <button
+                type="button"
+                onClick={handleSubmit}
+                className="flex items-center gap-2 px-5 py-2 rounded-lg text-white font-semibold text-sm transition-all hover:shadow-lg active:scale-[0.98] border-none cursor-pointer"
+                style={{ background: "rgba(26,35,126,0.6)", border: "1px solid rgba(255,255,255,0.3)", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}
+              >
+                <span className="material-icons-outlined" style={{ fontSize: "18px" }}>play_arrow</span>
+                Run All Personas
+              </button>
+            )}
+          </div>
         </div>
-        <button type="button" onClick={handleReset}
-          className="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-white text-sm font-medium border-none cursor-pointer transition-all hover:opacity-90"
-          style={{ background: "linear-gradient(135deg, var(--hex-primary), var(--hex-primary-light))" }}>
-          <span className="material-icons-outlined" style={{ fontSize: "16px" }}>refresh</span>
-          Run New Analysis
-        </button>
       </div>
 
-      {/* Enterprise Summary KPI Cards */}
-      {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <KPICard label="Total Anomalies" value={summary.anomalies_total} icon="warning" />
-          <KPICard label="High Impact" value={summary.anomalies_high_impact} icon="priority_high" color="#EF4444" />
-          <KPICard label="Departments" value={summary.departments_affected} icon="business" />
-          <KPICard label="Revenue at Stake" value={formatUsd(summary.net_revenue_at_stake_usd)} icon="trending_down" color="#EF4444" />
-          <KPICard label="Protected/Recovered" value={formatUsd(summary.protected_recovered_usd)} icon="shield" color="#10B981" />
-          <KPICard label="Action Cost" value={formatUsd(summary.total_action_cost_usd)} icon="payments" />
-          <KPICard label="Within Authority" value={summary.decisions_within_authority} icon="check_circle" color="#10B981" />
-          <KPICard label="Pending Approval" value={summary.decisions_pending_approval} icon="pending" color="#F97316" />
+      {/* Submitting spinner overlay */}
+      {orchestrationStatus === "submitting" && (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-10 h-10 border-4 border-[var(--hex-primary)] border-t-transparent rounded-full animate-spin" />
+          <span className="ml-3 text-sm text-[var(--hex-text-dim)]">Submitting orchestration…</span>
         </div>
       )}
 
-      {/* Cross-Department Contentions */}
-      {contentions.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold text-[var(--hex-text)] mb-3 flex items-center gap-2">
-            <span className="material-icons-outlined text-amber-500" style={{ fontSize: "18px" }}>gavel</span>
-            Cross-Department Contentions
-          </h2>
-          <div className="space-y-2">
-            {contentions.map((c, i) => (
-              <div key={i} className="rounded-xl border border-amber-200 p-4 text-sm text-[var(--hex-text)]"
-                style={{ background: "rgba(245,158,11,0.05)" }}>
-                {typeof c === "string" ? c : JSON.stringify(c)}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Per-Persona Sections */}
-      {sections.map((section, idx) => (
-        <PersonaSection key={idx} section={section} />
-      ))}
-
-      {/* Pending Approvals */}
-      {pendingApprovals.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold text-[var(--hex-text)] mb-3 flex items-center gap-2">
-            <span className="material-icons-outlined text-orange-500" style={{ fontSize: "18px" }}>approval</span>
-            Pending Approvals
-          </h2>
-          <div className="space-y-2">
-            {pendingApprovals.map((a, i) => (
-              <div key={i} className="rounded-xl border border-orange-200 p-4 text-sm text-[var(--hex-text)]"
-                style={{ background: "rgba(249,115,22,0.05)" }}>
-                {typeof a === "string" ? a : JSON.stringify(a)}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Validation Summary */}
-      {validation && (
-        <div className="rounded-2xl border border-[var(--border-color)] p-6" style={{ background: "var(--hex-card-bg)" }}>
-          <h2 className="text-sm font-semibold text-[var(--hex-text)] mb-3 flex items-center gap-2">
-            <span className="material-icons-outlined text-[var(--hex-primary)]" style={{ fontSize: "18px" }}>verified</span>
-            Validation Summary
-          </h2>
-          <div className="flex items-center gap-3 mb-3">
-            <span className="inline-flex px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider text-white"
-              style={{ background: validation.verdict === "CLEARED" ? "#10B981" : validation.verdict === "CONDITIONAL" ? "#F97316" : "var(--hex-primary)" }}>
-              {validation.verdict || "UNKNOWN"}
-            </span>
-          </div>
-          {validation.caveats && validation.caveats.length > 0 && (
-            <div className="rounded-xl p-4 border border-amber-200 mt-3" style={{ background: "rgba(245,158,11,0.05)" }}>
-              <div className="text-xs font-semibold text-amber-700 mb-2">Caveats</div>
-              <ul className="space-y-1">
-                {validation.caveats.map((c, i) => (
-                  <li key={i} className="text-xs text-[var(--hex-text-dim)] flex items-start gap-1.5">
-                    <span className="text-amber-500 mt-0.5">•</span>{c}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      {/* DAG */}
+      <AgentNetworkGraph eventMap={eventMap} pipelineRunning={isRunning} graphData={graphData} />
     </div>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function KPICard({ label, value, icon, color }: { label: string; value: number | string | null | undefined; icon: string; color?: string }) {
+function KPICard({
+  label,
+  value,
+  icon,
+  color,
+  subtitle,
+}: {
+  label: string;
+  value: number | string | null | undefined;
+  icon: string;
+  color?: string;
+  subtitle?: string;
+}) {
   return (
     <div className="rounded-xl border border-[var(--border-color)] p-4" style={{ background: "var(--hex-card-bg)" }}>
       <div className="flex items-center gap-2 mb-2">
-        <span className="material-icons-outlined" style={{ fontSize: "18px", color: color || "var(--hex-primary)" }}>{icon}</span>
+        <span className="material-icons-outlined" style={{ fontSize: "18px", color: color || "var(--hex-primary)" }}>
+          {icon}
+        </span>
         <span className="text-[10px] uppercase tracking-wider font-semibold text-[var(--hex-text-dim)]">{label}</span>
       </div>
       <div className="text-xl font-bold text-[var(--hex-text)]">{value ?? "—"}</div>
-    </div>
-  );
-}
-
-function PersonaSection({ section }: { section: ReportSection }) {
-  const isDataGap = section.headline?.startsWith("DATA GAP:");
-
-  return (
-    <div className="mb-8 rounded-2xl border border-[var(--border-color)] overflow-hidden" style={{ background: "var(--hex-card-bg)" }}>
-      {/* Section header */}
-      <div className="px-6 py-4 border-b border-[var(--border-color)]"
-        style={{ background: "linear-gradient(135deg, rgba(60,44,218,0.03), rgba(60,44,218,0.08))" }}>
-        <h2 className="text-base font-bold text-[var(--hex-text)]">{section.persona}</h2>
-        {section.department && (
-          <span className="text-xs text-[var(--hex-text-dim)]">{section.department}</span>
-        )}
-      </div>
-
-      <div className="p-6 space-y-6">
-        {/* Headline — DATA GAP as amber banner */}
-        {section.headline && (
-          isDataGap ? (
-            <div className="rounded-xl p-4 border border-amber-300 flex items-start gap-3"
-              style={{ background: "rgba(245,158,11,0.08)" }}>
-              <span className="material-icons-outlined text-amber-500 mt-0.5" style={{ fontSize: "20px" }}>info</span>
-              <div>
-                <div className="text-xs font-bold text-amber-700 uppercase mb-1">Data Gap</div>
-                <p className="text-sm text-[var(--hex-text)]">{section.headline}</p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-[var(--hex-text)] font-medium">{section.headline}</p>
-          )
-        )}
-
-        {/* Key Metrics */}
-        {section.key_metrics && section.key_metrics.length > 0 && !isDataGap && (
-          <div>
-            <h4 className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-3">Key Metrics</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {section.key_metrics.map((m, i) => (
-                <div key={i} className="rounded-lg border border-[var(--border-color)] p-3">
-                  <div className="text-[10px] text-[var(--hex-text-dim)] uppercase truncate">{m.metric}</div>
-                  <div className="text-lg font-bold text-[var(--hex-text)]">
-                    {m.value != null ? String(m.value) : "—"}
-                    {m.unit && <span className="text-xs font-normal ml-1">{m.unit}</span>}
-                  </div>
-                  {m.delta != null && (
-                    <div className="text-xs" style={{ color: Number(m.delta) >= 0 ? "#10B981" : "#EF4444" }}>
-                      {Number(m.delta) >= 0 ? "+" : ""}{String(m.delta)}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Anomalies */}
-        {section.anomalies && section.anomalies.length > 0 && (
-          <div>
-            <h4 className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-3">Anomalies</h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-[var(--hex-text-dim)] border-b border-[var(--border-color)]">
-                    <th className="pb-2 pr-4">Anomaly</th>
-                    <th className="pb-2 pr-4">Severity</th>
-                    <th className="pb-2 pr-4">Regions</th>
-                    <th className="pb-2">Deviation</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {section.anomalies.map((a, i) => (
-                    <tr key={i} className="border-b border-[var(--border-color)]/50">
-                      <td className="py-2 pr-4 text-[var(--hex-text)]">{a.anomaly}</td>
-                      <td className="py-2 pr-4">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
-                          style={{
-                            background: a.severity === "high" ? "rgba(239,68,68,0.1)" : a.severity === "medium" ? "rgba(249,115,22,0.1)" : "rgba(148,163,184,0.1)",
-                            color: a.severity === "high" ? "#EF4444" : a.severity === "medium" ? "#F97316" : "#64748B",
-                          }}>
-                          {a.severity || "—"}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-4 text-[var(--hex-text-dim)]">{a.regions?.join(", ") || "—"}</td>
-                      <td className="py-2 text-[var(--hex-text)]">{a.deviation_pct != null ? `${a.deviation_pct}%` : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Drivers */}
-        {section.drivers && section.drivers.length > 0 && (
-          <div>
-            <h4 className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-3">Drivers</h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-[var(--hex-text-dim)] border-b border-[var(--border-color)]">
-                    <th className="pb-2 pr-4">Driver</th>
-                    <th className="pb-2 pr-4">Contribution</th>
-                    <th className="pb-2">Confidence</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {section.drivers.map((d, i) => (
-                    <tr key={i} className="border-b border-[var(--border-color)]/50">
-                      <td className="py-2 pr-4 text-[var(--hex-text)]">{d.driver}</td>
-                      <td className="py-2 pr-4 text-[var(--hex-text)]">{d.contribution_pct != null ? `${d.contribution_pct}%` : "—"}</td>
-                      <td className="py-2 text-[var(--hex-text)]">{d.confidence != null ? `${(d.confidence * 100).toFixed(0)}%` : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Risks */}
-        {section.risks && section.risks.length > 0 && (
-          <div>
-            <h4 className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-3">Risks</h4>
-            <ul className="space-y-1.5">
-              {section.risks.map((r, i) => (
-                <li key={i} className="flex items-start gap-2 text-xs text-[var(--hex-text)]">
-                  <span className="text-red-400 mt-0.5">•</span>{r}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Recommended Actions */}
-        {section.recommended_actions && section.recommended_actions.length > 0 && (
-          <div>
-            <h4 className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-3">Recommended Actions</h4>
-            <div className="space-y-3">
-              {section.recommended_actions.map((a, i) => (
-                <ActionCard key={i} action={a} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Trajectory */}
-        {section.trajectory && (
-          <div>
-            <h4 className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-3">Trajectory</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-              <div className="rounded-lg border border-[var(--border-color)] p-3">
-                <div className="text-[10px] text-[var(--hex-text-dim)]">Peak Day</div>
-                <div className="font-semibold text-[var(--hex-text)]">{section.trajectory.peak_day || "—"}</div>
-              </div>
-              <div className="rounded-lg border border-[var(--border-color)] p-3">
-                <div className="text-[10px] text-[var(--hex-text-dim)]">Decay to Baseline</div>
-                <div className="font-semibold text-[var(--hex-text)]">{section.trajectory.decay_to_baseline_day || "—"}</div>
-              </div>
-              <div className="rounded-lg border border-[var(--border-color)] p-3">
-                <div className="text-[10px] text-[var(--hex-text-dim)]">Peak Deviation</div>
-                <div className="font-semibold text-[var(--hex-text)]">{section.trajectory.peak_deviation_pct != null ? `${section.trajectory.peak_deviation_pct}%` : "—"}</div>
-              </div>
-              <div className="rounded-lg border border-[var(--border-color)] p-3">
-                <div className="text-[10px] text-[var(--hex-text-dim)]">Day 7 Deviation</div>
-                <div className="font-semibold text-[var(--hex-text)]">{section.trajectory.day7_deviation_pct != null ? `${section.trajectory.day7_deviation_pct}%` : "—"}</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Caveats — ALWAYS shown */}
-        {section.caveats && section.caveats.length > 0 && (
-          <div className="rounded-xl p-4 border border-amber-200" style={{ background: "rgba(245,158,11,0.05)" }}>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="material-icons-outlined text-amber-500" style={{ fontSize: "16px" }}>warning</span>
-              <span className="text-xs font-bold text-amber-700 uppercase">Caveats</span>
-            </div>
-            <ul className="space-y-1">
-              {section.caveats.map((c, i) => (
-                <li key={i} className="text-xs text-[var(--hex-text-dim)] flex items-start gap-1.5">
-                  <span className="text-amber-500 mt-0.5">•</span>{c}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
+      {subtitle && (
+        <p className="text-[10px] text-[var(--hex-text-dim)] mt-1 leading-tight">{subtitle}</p>
+      )}
     </div>
   );
 }
 
 function ActionCard({ action }: { action: RecommendedAction }) {
   return (
-    <div className="rounded-xl border border-[var(--border-color)] p-4">
+    <div className="rounded-xl border border-[var(--border-color)] p-4 mb-3">
       <div className="flex items-start justify-between gap-4 mb-2">
         <p className="text-sm font-medium text-[var(--hex-text)] flex-1">{action.action}</p>
         <div className="flex items-center gap-2 shrink-0">
@@ -707,16 +1002,23 @@ function ActionCard({ action }: { action: RecommendedAction }) {
       </div>
       <div className="flex items-center gap-4 text-xs text-[var(--hex-text-dim)]">
         {action.impact_usd != null && (
-          <span>Impact: <span className="font-semibold text-green-600">{formatUsd(action.impact_usd)}</span></span>
+          <span>
+            Impact: <span className="font-semibold text-green-600">{formatUsd(action.impact_usd)}</span>
+          </span>
         )}
         {action.cost_usd != null && (
-          <span>Cost: <span className="font-semibold text-[var(--hex-text)]">{formatUsd(action.cost_usd)}</span></span>
+          <span>
+            Cost: <span className="font-semibold text-[var(--hex-text)]">{formatUsd(action.cost_usd)}</span>
+          </span>
         )}
         {action.confidence != null && (
           <div className="flex items-center gap-1.5">
             <span>Confidence:</span>
             <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${(action.confidence * 100)}%`, background: "var(--hex-primary)" }} />
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${action.confidence * 100}%`, background: "var(--hex-primary)" }}
+              />
             </div>
             <span className="font-mono">{(action.confidence * 100).toFixed(0)}%</span>
           </div>

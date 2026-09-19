@@ -1187,40 +1187,33 @@ def api_rag_document_detail(doc_id):
 # AI OBSERVABILITY — Monitoring & Tracing for Cortex Agents
 # ══════════════════════════════════════════════════════════════════════════════
 
+_DS_INTERACTIVE_AGENTS = [
+    {"name": "INTERACTIVE_DEMANDSENSING_AGENT", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Interactive Demand Sensing Agent"},
+]
+
+_DS_AUTONOMOUS_AGENTS = [
+    {"name": "MASTER_ORCHESTRATOR_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Master Orchestrator"},
+    {"name": "DATA_GATHERING_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Data Gathering Agent"},
+    {"name": "DIMENSIONAL_ANALYSIS_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Dimensional Analysis Agent"},
+    {"name": "EXEC_REPORT_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Exec Report Agent"},
+    {"name": "PREDICTIVE_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Predictive Agent"},
+    {"name": "PRESCRIPTIVE_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Prescriptive Agent"},
+    {"name": "ROOT_CAUSE_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Root Cause Agent"},
+    {"name": "TREND_DISCOVERY_AGENT_AUTO_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Trend Discovery Agent"},
+]
+
 OBSERVABILITY_AGENTS = {
-    "Demand Analyst": {
-        "Interactive": [
-            {"name": "INTERACTIVE_DEMANDSENSING_AGENT", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Interactive Demand Sensing Agent"},
-            {"name": "BA_SUB_ORCHESTRATOR_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "BA Sub-Orchestrator"},
-            {"name": "DATA_GATHERING_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Data Gathering Agent"},
-            {"name": "DIMENSIONAL_ANALYSIS_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Dimensional Analysis Agent"},
-            {"name": "DS_SUB_ORCHESTRATOR_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "DS Sub-Orchestrator"},
-            {"name": "FEATURE_ENHANCEMENT_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Feature Enhancement Agent"},
-            {"name": "INSIGHTS_NARRATION_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Insights Narration Agent"},
-            {"name": "PERSONA_CONTEXT_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Persona Context Agent"},
-            {"name": "PREDICTIVE_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Predictive Agent"},
-            {"name": "PRESCRIPTIVE_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Prescriptive Agent"},
-            {"name": "ROOT_CAUSE_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Root Cause Agent"},
-            {"name": "TREND_DISCOVERY_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Trend Discovery Agent"},
-            {"name": "VALIDATION_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Validation Agent"},
-            {"name": "VISUALIZATION_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Visualization Agent"},
-        ],
-        "Autonomous": [
-            {"name": "MASTER_ORCHESTRATOR_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Master Orchestrator"},
-            {"name": "BA_SUB_ORCHESTRATOR_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "BA Sub-Orchestrator"},
-            {"name": "DATA_GATHERING_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Data Gathering Agent"},
-            {"name": "DIMENSIONAL_ANALYSIS_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Dimensional Analysis Agent"},
-            {"name": "DS_SUB_ORCHESTRATOR_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "DS Sub-Orchestrator"},
-            {"name": "FEATURE_ENHANCEMENT_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Feature Enhancement Agent"},
-            {"name": "INSIGHTS_NARRATION_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Insights Narration Agent"},
-            {"name": "PERSONA_CONTEXT_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Persona Context Agent"},
-            {"name": "PREDICTIVE_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Predictive Agent"},
-            {"name": "PRESCRIPTIVE_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Prescriptive Agent"},
-            {"name": "ROOT_CAUSE_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Root Cause Agent"},
-            {"name": "TREND_DISCOVERY_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Trend Discovery Agent"},
-            {"name": "VALIDATION_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Validation Agent"},
-            {"name": "VISUALIZATION_AGENT_DEMANDSENSING", "database": "DEMANDSENSING_AI", "schema": "DEMANDSENSING_SCHEMA", "display_name": "Visualization Agent"},
-        ],
+    "Demand Planner": {
+        "Interactive": _DS_INTERACTIVE_AGENTS,
+        "Autonomous": _DS_AUTONOMOUS_AGENTS,
+    },
+    "Supply Planner": {
+        "Interactive": _DS_INTERACTIVE_AGENTS,
+        "Autonomous": _DS_AUTONOMOUS_AGENTS,
+    },
+    "Director of Demand Planning": {
+        "Interactive": _DS_INTERACTIVE_AGENTS,
+        "Autonomous": _DS_AUTONOMOUS_AGENTS,
     },
 }
 
@@ -1316,11 +1309,13 @@ def api_observability_thread_detail(record_id):
         schema = request.args.get("schema", "DEMANDSENSING_SCHEMA")
         database = request.args.get("database", "DEMANDSENSING_AI")
 
-        # Get the user question and response
+        # Get the user question, response, user name and timestamp
         summary_sql = f"""
         SELECT
             RECORD_ATTRIBUTES:"ai.observability.record_root.input"::STRING AS user_question,
-            LEFT(RECORD_ATTRIBUTES:"ai.observability.record_root.output"::STRING, 5000) AS agent_response
+            LEFT(RECORD_ATTRIBUTES:"ai.observability.record_root.output"::STRING, 5000) AS agent_response,
+            RESOURCE_ATTRIBUTES:"snow.user.name"::STRING AS user_name,
+            TIMESTAMP AS ts
         FROM TABLE(SNOWFLAKE.LOCAL.GET_AI_OBSERVABILITY_EVENTS(
             '{database}', '{schema}', '{agent_name}', 'CORTEX AGENT'))
         WHERE RECORD:"name"::STRING = 'AgentV2RequestResponseInfo'
@@ -1330,9 +1325,13 @@ def api_observability_thread_detail(record_id):
         summary_rows = _run_query(summary_sql)
         user_question = ""
         agent_response = ""
+        user_name = ""
+        thread_timestamp = ""
         if summary_rows:
             user_question = summary_rows[0].get("USER_QUESTION", "")
             agent_response = summary_rows[0].get("AGENT_RESPONSE", "")
+            user_name = summary_rows[0].get("USER_NAME", "")
+            thread_timestamp = str(summary_rows[0].get("TS", ""))
 
         # Get all spans for this trace
         spans_sql = f"""
@@ -1372,10 +1371,40 @@ def api_observability_thread_detail(record_id):
                 "timestamp": str(row.get("TIMESTAMP", "")),
             })
 
+        # Extract datasources from SQL queries in spans (tables/views referenced)
+        datasources = set()
+        table_pattern = re.compile(r'\bFROM\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)', re.IGNORECASE)
+        join_pattern = re.compile(r'\bJOIN\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)', re.IGNORECASE)
+        quoted_pattern = re.compile(r'\b(?:FROM|JOIN)\s+("?[A-Za-z0-9_]+"?(?:\."?[A-Za-z0-9_]+"?)*)', re.IGNORECASE)
+        into_pattern = re.compile(r'\bINTO\s+([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)', re.IGNORECASE)
+        skip_words = {"SELECT", "DUAL", "TABLE", "VALUES", "SET", "NULL", "WHERE", "AND", "OR", "NOT", "EXISTS", "LATERAL"}
+        for s in spans:
+            sql = s.get("sql_query") or ""
+            for match in table_pattern.findall(sql):
+                cleaned = match.replace('"', '')
+                if cleaned.upper() not in skip_words:
+                    datasources.add(cleaned)
+            for match in join_pattern.findall(sql):
+                cleaned = match.replace('"', '')
+                if cleaned.upper() not in skip_words:
+                    datasources.add(cleaned)
+            for match in quoted_pattern.findall(sql):
+                cleaned = match.replace('"', '')
+                if cleaned.upper() not in skip_words:
+                    datasources.add(cleaned)
+            for match in into_pattern.findall(sql):
+                cleaned = match.replace('"', '')
+                if cleaned.upper() not in skip_words:
+                    datasources.add(cleaned)
+        datasources = sorted(datasources)
+
         return jsonify({
             "record_id": record_id,
             "user_question": user_question,
             "agent_response": agent_response,
+            "user_name": user_name,
+            "timestamp": thread_timestamp,
+            "datasources": datasources,
             "spans": spans,
         })
     except Exception as e:

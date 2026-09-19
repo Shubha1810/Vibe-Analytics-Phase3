@@ -109,6 +109,116 @@ export interface AgentNetworkNode {
   node_name: string;
   agent_name: string | null;
   wave_no: number;
-  edges: string[];
-  is_control?: boolean;
+  kind: "agent" | "control";
 }
+
+export interface OrchestrationEdge {
+  source: string;
+  target: string;
+  conditional: boolean;
+}
+
+export interface OrchestrationGraph {
+  module: string;
+  topology: string;
+  terminal_node: string;
+  allow_retry: boolean;
+  nodes: AgentNetworkNode[];
+  edges: OrchestrationEdge[];
+}
+
+// ── Autonomous Analytics Types ──────────────────────────────────────────────
+
+export interface PortfolioKPIs {
+  total_anomalies: number;
+  high_impact: number;
+  departments_affected: number;
+  revenue_at_stake: number;
+  avg_stockout_rate: number;
+  total_units_at_risk: number;
+}
+
+export interface AnomalyRow {
+  category: string;
+  region: string;
+  risk_type: string;
+  severity: string;
+  deviation_pct: number;
+  value_at_risk: number;
+  units_at_risk: number;
+  days_to_impact: number;
+  primary_driver: string;
+  confidence: number;
+  persona_owner: string;
+  recommended_posture: string;
+}
+
+export interface HeatmapCell {
+  region: string;
+  category: string;
+  category_l1: string;
+  category_l2: string;
+  deviation_pct: number;
+  lost_sales: number;
+  stockout_count: number;
+}
+
+export interface VarianceBucket {
+  deviation_bucket: number;
+  sku_count: number;
+}
+
+export interface DriverRow {
+  department: string;
+  category: string;
+  driver_name: string;
+  contribution_pp: number;
+  confidence_score: number;
+  is_significant: boolean;
+  multicollinearity_flag: boolean;
+  total_deviation_pp: number;
+}
+
+export interface RecoveryPoint {
+  department: string;
+  category: string;
+  risk_type: string;
+  severity: string;
+  persona_owner: string;
+  days_from_now: number;
+  recoverable_value: number;
+  daily_erosion: number;
+  intervention_cost: number;
+  benefit_cost_ratio: number;
+  window_status: string;
+  total_value_at_risk: number;
+}
+
+export interface AnalyticsData {
+  kpis: PortfolioKPIs;
+  anomalies: AnomalyRow[];
+  heatmap: HeatmapCell[];
+  variance: VarianceBucket[];
+  drivers: DriverRow[];
+  recovery: RecoveryPoint[];
+}
+
+// ── Multi-Run (All-Persona) Types ───────────────────────────────────────────
+
+export type PersonaKey = "demand_planner" | "supply_planner" | "director";
+
+export const PERSONA_KEY_TO_TITLE: Record<PersonaKey, string> = {
+  demand_planner: "Demand Planner",
+  supply_planner: "Supply Planner",
+  director: "Director of Demand Planning",
+};
+
+export const PERSONA_TITLE_TO_KEY: Record<string, PersonaKey> = {
+  "Demand Planner": "demand_planner",
+  "Supply Planner": "supply_planner",
+  "Director of Demand Planning": "director",
+};
+
+export type MultiRunIds = Record<PersonaKey, string | null>;
+
+export type MultiRunResults = Record<PersonaKey, OrchestrationResult | null>;
