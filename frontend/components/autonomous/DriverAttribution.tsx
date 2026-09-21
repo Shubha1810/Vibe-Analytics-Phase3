@@ -85,10 +85,78 @@ export function DriverAttribution({ data, narrative }: DriverAttributionProps) {
     return { categories: catSet, traces: traceList, flags: flagMap };
   }, [filtered]);
 
+  // Dynamic insight based on department filter
+  const scopedInsight = useMemo(() => {
+    if (!filtered.length) return null;
+    const scope = selectedDept ? `**${selectedDept}**` : "all departments";
+
+    // Aggregate by driver
+    const byDriver: Record<string, { total: number; count: number }> = {};
+    filtered.forEach((d) => {
+      const name = d.driver_name ?? "Unknown";
+      if (!byDriver[name]) byDriver[name] = { total: 0, count: 0 };
+      byDriver[name].total += d.contribution_pp ?? 0;
+      byDriver[name].count += 1;
+    });
+
+    const ranked = Object.entries(byDriver)
+      .map(([name, v]) => ({ name, avg: v.total / v.count, count: v.count }))
+      .sort((a, b) => Math.abs(b.avg) - Math.abs(a.avg));
+
+    const lines: string[] = [];
+    lines.push(`Root cause attribution for ${scope}: **${filtered.length}** driver-category combinations analyzed.`);
+    ranked.forEach((d) => {
+      lines.push(`**${d.name}**: average contribution **${d.avg > 0 ? "+" : ""}${d.avg.toFixed(2)}pp** across ${d.count} categories.`);
+    });
+
+    const dominant = ranked[0];
+
+    // Business Implications
+    const implLines: string[] = [];
+    if (dominant) {
+      if (Math.abs(dominant.avg) > 5) {
+        implLines.push(`**${dominant.name}** is the dominant driver at **${dominant.avg.toFixed(2)}pp** — this single factor explains the majority of demand deviation in ${scope}.`);
+      }
+      const multiSignal = ranked.filter((d) => Math.abs(d.avg) > 1);
+      if (multiSignal.length >= 3) {
+        implLines.push(`**${multiSignal.length} drivers** contribute meaningfully (>1pp) — this is a multi-signal demand event with compounding effects, not a single-cause anomaly.`);
+      }
+    }
+    const hasMulticoll = filtered.some((d) => d.multicollinearity_flag);
+    if (hasMulticoll) {
+      implLines.push("Multicollinearity detected between some drivers — contribution estimates may overlap. Treat individual driver values as directional, not exact.");
+    }
+    if (!implLines.length) implLines.push("Driver contributions are within expected ranges — no structural demand shift detected.");
+
+    // Recommended Actions
+    const actLines: string[] = [];
+    if (dominant && dominant.name.toLowerCase().includes("weather")) {
+      actLines.push("Weather-driven demand is temporary — secure short-term replenishment but avoid over-ordering beyond the forecast window.");
+    } else if (dominant && dominant.name.toLowerCase().includes("digital")) {
+      actLines.push("Digital/social signal spikes are often short-lived (5-7 days). Monitor decay rate before committing to large inventory positions.");
+    } else if (dominant && dominant.name.toLowerCase().includes("promo")) {
+      actLines.push("Validate that promotional lift is incremental, not pulled-forward demand. Check post-promo dip patterns from prior campaigns.");
+    } else if (dominant && dominant.name.toLowerCase().includes("competitor")) {
+      actLines.push("Competitor-driven share gains may be sustainable — assess whether the competitor stockout is temporary or structural.");
+    }
+    actLines.push("Use the Recovery Timeline below to size the financial impact and determine the optimal intervention window.");
+    if (selectedDept) {
+      actLines.push(`Switch department filter to compare driver patterns across departments and identify systemic vs. isolated effects.`);
+    } else {
+      actLines.push("Filter by individual department to isolate department-specific driver patterns for targeted action.");
+    }
+
+    return lines.join(" ") + ` |IMPLICATIONS| ${implLines.join(" ")} |ACTIONS| ${actLines.join(" ")}`;
+  }, [filtered, selectedDept]);
+
   if (!data.length) return <div className="text-sm opacity-60 p-4">No driver data available.</div>;
 
   return (
     <div>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+        <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#8B5CF6" }}>account_tree</span>
+        Root Cause Driver Attribution
+      </h3>
       {/* Department filter */}
       {departments.length > 1 && (
         <div className="flex items-center gap-2 mb-3">
@@ -200,7 +268,7 @@ export function DriverAttribution({ data, narrative }: DriverAttributionProps) {
         <HowToReadIt bullets={HOW_TO_READ} />
       </div>
 
-      <ChartExplainer narrative={narrative} />
+      <ChartExplainer narrative={scopedInsight || narrative} />
     </div>
   );
 }

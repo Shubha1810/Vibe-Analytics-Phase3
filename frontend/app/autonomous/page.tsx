@@ -64,27 +64,169 @@ function formatUsd(v: number | null | undefined): string {
   return "$" + v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
-function formatSectionNarrative(sections: ReportSection[]): string {
-  if (!sections.length) return "";
-  const headlines = sections
-    .map((s) => s.headline)
-    .filter(Boolean)
-    .join(" · ");
-  const topAnomalies = sections
-    .flatMap((s) => s.anomalies || [])
+interface PerVizNarratives {
+  anomaly_table: string;
+  heatmap: string;
+  variance: string;
+  cross_dept: string;
+  drivers: string;
+  recovery: string;
+  stockout: string;
+  act: string;
+  executive: string;
+}
+
+function buildPerVizNarratives(sections: ReportSection[], narrative?: string): PerVizNarratives {
+  const result: PerVizNarratives = { anomaly_table: "", heatmap: "", variance: "", cross_dept: "", drivers: "", recovery: "", stockout: "", act: "", executive: "" };
+  if (!sections.length && !narrative) return result;
+
+  const allAnomalies = sections.flatMap((s) => s.anomalies || []);
+  const allDrivers = sections.flatMap((s) => s.drivers || []);
+  const allMetrics = sections.flatMap((s) => s.key_metrics || []);
+  const allActions = sections.flatMap((s) => s.recommended_actions || []);
+  const headlines = sections.map((s) => s.headline).filter(Boolean);
+  const depts = [...new Set(sections.map((s) => s.department).filter(Boolean))];
+
+  const topAnom = [...allAnomalies]
     .sort((a, b) => Math.abs(b.deviation_pct ?? 0) - Math.abs(a.deviation_pct ?? 0))
-    .slice(0, 3)
-    .map((a) => `${a.anomaly ?? "Unknown"} (${a.severity ?? "?"}, ${((a.deviation_pct ?? 0) * 100).toFixed(1)}% deviation)`)
-    .join("; ");
-  const metricChanges = sections
-    .flatMap((s) => s.key_metrics || [])
-    .map((m) => `${m.metric}: ${m.value}`)
-    .join(", ");
-  const parts: string[] = [];
-  if (headlines) parts.push(headlines);
-  if (topAnomalies) parts.push(`Top anomalies: ${topAnomalies}.`);
-  if (metricChanges) parts.push(`Key metrics — ${metricChanges}.`);
-  return parts.join(" ") || "";
+    .slice(0, 5);
+
+  // ── Anomaly Table ──
+  const anomParts: string[] = [];
+  if (topAnom.length) {
+    anomParts.push(`**${allAnomalies.length}** anomalies detected across the portfolio, ranked by revenue impact.`);
+    const critical = allAnomalies.filter((a) => (a.severity ?? "").toLowerCase() === "critical");
+    if (critical.length) anomParts.push(`**${critical.length}** CRITICAL-severity items require immediate attention.`);
+    topAnom.forEach((a) => {
+      const parts: string[] = [];
+      if (a.anomaly) parts.push(`**${a.anomaly}**`);
+      if (a.severity) parts.push(`${a.severity}`);
+      if (a.deviation_pct != null) parts.push(`**${((a.deviation_pct ?? 0) * 100).toFixed(1)}%** deviation`);
+      if ((a as any).value_at_risk_usd != null) parts.push(`**$${Number((a as any).value_at_risk_usd).toLocaleString()}** at risk`);
+      if (parts.length) anomParts.push(parts.join(" — ") + ".");
+    });
+  }
+  const anomImpl = ["Anomalies ranked by severity and revenue impact indicate where the portfolio is most stressed. CRITICAL items represent the highest financial exposure and shortest action windows."];
+  if (topAnom.length) anomImpl.push(`The top **${topAnom.length}** anomalies account for the largest share of portfolio risk — addressing these first maximizes recovery potential.`);
+  const anomAct = ["Prioritize CRITICAL items for same-day response — review replenishment needs and supplier capacity.", "Delegate HIGH-severity items for action within 2-3 business days.", "Monitor MEDIUM items through the next weekly review cycle."];
+  result.anomaly_table = anomParts.join(" ") + ` |IMPLICATIONS| ${anomImpl.join(" ")} |ACTIONS| ${anomAct.join(" ")}`;
+
+  // ── Heatmap (fallback — DeviationHeatmap computes its own dynamic insight) ──
+  const heatParts: string[] = [];
+  if (depts.length) heatParts.push(`Demand deviations span **${depts.length}** department(s): ${depts.join(", ")}.`);
+  const regions = [...new Set(topAnom.flatMap((a) => a.regions || []).filter(Boolean))];
+  if (regions.length) heatParts.push(`Hotspots concentrated in **${regions.join(", ")}**.`);
+  const overCount = allAnomalies.filter((a) => (a.deviation_pct ?? 0) > 0).length;
+  const underCount = allAnomalies.filter((a) => (a.deviation_pct ?? 0) < 0).length;
+  if (overCount || underCount) heatParts.push(`**${overCount}** over-forecast (opportunity/stockout risk) and **${underCount}** under-forecast (markdown risk) items.`);
+  result.heatmap = heatParts.join(" ") + ` |IMPLICATIONS| Geographic concentration of deviations suggests regional factors (weather, competitor activity) rather than portfolio-wide issues. |ACTIONS| Select departments above to drill into sub-category detail and identify the specific product lines driving each hotspot.`;
+
+  // ── Variance ──
+  const varParts: string[] = [];
+  const extreme = allAnomalies.filter((a) => Math.abs(a.deviation_pct ?? 0) > 0.2);
+  varParts.push(`Portfolio health: **${allAnomalies.length - extreme.length}** SKUs within normal ±10% variance band.`);
+  if (extreme.length) varParts.push(`**${extreme.length}** SKUs show extreme deviation (>20%), signaling structural demand shifts rather than noise.`);
+  const mapeMetric = allMetrics.find((m) => (m.metric ?? "").toLowerCase().includes("mape"));
+  if (mapeMetric) varParts.push(`Forecast accuracy (MAPE): **${mapeMetric.value}**.`);
+  const varImpl = ["A high proportion of extreme deviations (>20%) indicates the baseline forecast may need recalibration — this is a systemic issue, not just individual anomalies."];
+  if (extreme.length > allAnomalies.length * 0.3) varImpl.push(`Over **${Math.round(extreme.length / Math.max(allAnomalies.length, 1) * 100)}%** of the portfolio shows extreme deviation — consider an emergency forecast review.`);
+  const varAct = ["Flag departments with MAPE >20% for model recalibration with the demand science team.", "Use the distribution shape to determine if issues are broad (flat distribution) or concentrated (long tail)."];
+  result.variance = varParts.join(" ") + ` |IMPLICATIONS| ${varImpl.join(" ")} |ACTIONS| ${varAct.join(" ")}`;
+
+  // ── Cross-Dept ──
+  const crossParts: string[] = [];
+  if (depts.length > 1) {
+    crossParts.push(`Cross-department signal convergence detected across **${depts.join("** and **")}**.`);
+  }
+  if (headlines.length) crossParts.push(headlines.join(". ") + ".");
+  const crossImpl = depts.length > 1
+    ? ["When multiple departments show simultaneous anomalies, they often share a common external driver (weather, macro events). Cross-department awareness prevents siloed responses and identifies resource contention early."]
+    : ["Single-department focus — no cross-department signal interference detected this cycle."];
+  const crossAct = ["Check if departments are competing for the same logistics or supplier capacity before approving interventions.", "Coordinate with peer planners to align on shared-resource priorities before escalating to leadership."];
+  result.cross_dept = crossParts.join(" ") + ` |IMPLICATIONS| ${crossImpl.join(" ")} |ACTIONS| ${crossAct.join(" ")}`;
+
+  // ── Drivers (fallback — DriverAttribution computes its own dynamic insight) ──
+  const drvParts: string[] = [];
+  if (allDrivers.length) {
+    drvParts.push(`Root cause decomposition across **${allDrivers.length}** driver-anomaly combinations.`);
+    const byName: Record<string, number[]> = {};
+    allDrivers.forEach((d) => {
+      const name = d.driver ?? "Unknown";
+      if (!byName[name]) byName[name] = [];
+      if (d.contribution_pct != null) byName[name].push(d.contribution_pct);
+    });
+    Object.entries(byName)
+      .sort((a, b) => Math.abs(b[1].reduce((s, v) => s + v, 0) / b[1].length) - Math.abs(a[1].reduce((s, v) => s + v, 0) / a[1].length))
+      .forEach(([name, vals]) => {
+        const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+        drvParts.push(`**${name}**: average contribution **${avg > 0 ? "+" : ""}${avg.toFixed(2)}pp** across ${vals.length} observations.`);
+      });
+  }
+  result.drivers = drvParts.join(" ") + ` |IMPLICATIONS| Understanding root cause drivers determines the correct response — weather-driven spikes need short-term replenishment, promo-driven lifts may be pulled-forward demand. |ACTIONS| Match your intervention to the dominant driver. Use the department filter to isolate department-specific patterns.`;
+
+  // ── Recovery ──
+  const recParts: string[] = [];
+  const trajectories = sections.filter((s) => s.trajectory);
+  if (trajectories.length) {
+    trajectories.forEach((s) => {
+      const t = s.trajectory!;
+      if (t.peak_deviation_pct != null) recParts.push(`Peak deviation projected at **${(t.peak_deviation_pct * 100).toFixed(1)}%**.`);
+      if (t.decay_to_baseline_day) recParts.push(`Expected decay to baseline by **${t.decay_to_baseline_day}**.`);
+    });
+  }
+  if (allActions.length) {
+    const totalProtected = allActions.reduce((s, a) => s + (a.impact_usd ?? 0), 0);
+    const totalCost = allActions.reduce((s, a) => s + (a.cost_usd ?? 0), 0);
+    if (totalProtected) recParts.push(`**$${totalProtected.toLocaleString()}** recoverable with timely intervention.`);
+    if (totalCost) recParts.push(`Total intervention cost: **$${totalCost.toLocaleString()}**.`);
+  }
+  recParts.push("Every day of delay erodes the recoverable value — perishable categories face the shortest action windows.");
+  result.recovery = recParts.join(" ") + ` |IMPLICATIONS| The recovery trajectory shows a decaying opportunity — the value you can capture shrinks daily. For perishable categories, the window may be as short as 3-5 days before the opportunity is fully forfeit. |ACTIONS| Act on perishable items today — these have the steepest erosion curves. For durable goods, you have more time but should stage orders within 48 hours. Hand off to Supply Planning for sized replenishment actions.`;
+
+  // ── Stockout ──
+  const stockParts: string[] = [];
+  const highRisk = allAnomalies.filter((a) => (a.severity ?? "").toLowerCase() === "critical" || (a.severity ?? "").toLowerCase() === "high");
+  stockParts.push(`**${highRisk.length}** high-risk items flagged for potential stockout or availability miss.`);
+  if (allActions.length) {
+    const escalated = allActions.filter((a) => a.approval_required);
+    stockParts.push(`**${allActions.length}** recommended actions staged — **${escalated.length}** require escalation above planner authority.`);
+  }
+  const biasMetric = allMetrics.find((m) => (m.metric ?? "").toLowerCase().includes("bias"));
+  if (biasMetric) stockParts.push(`Forecast bias: **${biasMetric.value}** — systematic under-forecasting compounds stockout risk.`);
+  result.stockout = stockParts.join(" ") + ` |IMPLICATIONS| Stockout risk directly translates to lost revenue, customer churn, and degraded brand trust. Items approaching days-of-supply thresholds should be treated as time-critical. |ACTIONS| Approve replenishment orders for items within 2 days of stockout. Escalate cross-department capacity conflicts to the Director for resolution at S&OP.`;
+
+  // ── ACT ──
+  const actParts: string[] = [];
+  if (allActions.length) {
+    actParts.push(`**${allActions.length}** prescriptive actions recommended, each with cost-benefit analysis and authority-level tagging.`);
+    const approved = allActions.filter((a) => !a.approval_required);
+    const pending = allActions.filter((a) => a.approval_required);
+    if (approved.length) actParts.push(`**${approved.length}** actions within planner authority — can be executed immediately.`);
+    if (pending.length) actParts.push(`**${pending.length}** actions require escalation for approval.`);
+    const totalImpact = allActions.reduce((s, a) => s + (a.impact_usd ?? 0), 0);
+    const totalCost = allActions.reduce((s, a) => s + (a.cost_usd ?? 0), 0);
+    if (totalImpact) actParts.push(`Total revenue protected: **$${totalImpact.toLocaleString()}**.`);
+    if (totalCost) actParts.push(`Total intervention cost: **$${totalCost.toLocaleString()}**.`);
+    if (totalImpact && totalCost) actParts.push(`Portfolio benefit-cost ratio: **${(totalImpact / Math.max(totalCost, 1)).toFixed(1)}x**.`);
+  } else {
+    actParts.push("No prescriptive actions generated for this run — anomalies may be within manageable thresholds.");
+  }
+  result.act = actParts.join(" ") + ` |IMPLICATIONS| Each action card represents a quantified trade-off: the cost of intervention vs. the revenue it protects. Actions within planner authority can be executed immediately; escalated items require leadership sign-off at S&OP. |ACTIONS| Review and approve actions within your authority threshold. Route escalated items to the Director with the benefit-cost ratio as justification. Execute time-sensitive actions (perishable categories) before end of day.`;
+
+  // ── Executive ──
+  const execParts: string[] = [];
+  execParts.push(`Enterprise portfolio scan: **${allAnomalies.length}** anomalies across **${depts.length}** departments.`);
+  const totalVar = allMetrics.find((m) => (m.metric ?? "").toLowerCase().includes("revenue_at_risk"));
+  if (totalVar) execParts.push(`Total revenue at stake: **${totalVar.value}**.`);
+  if (allActions.length) {
+    const withinAuth = allActions.filter((a) => !a.approval_required).length;
+    const needsApproval = allActions.filter((a) => a.approval_required).length;
+    execParts.push(`**${withinAuth}** actions within planner authority; **${needsApproval}** pending leadership sign-off.`);
+  }
+  if (headlines.length) execParts.push(headlines.join(". ") + ".");
+  result.executive = execParts.join(" ") + ` |IMPLICATIONS| The enterprise roll-up consolidates all departmental signals into one decision surface. Cross-department contentions and resource conflicts are surfaced here to prevent siloed decision-making. |ACTIONS| Approve or reallocate contested resources (expedited freight, DC capacity). Sign off on escalated actions. Use this briefing as the S&OP discussion anchor — all numbers trace back to specific product-region-driver combinations.`;
+
+  return result;
 }
 
 // ── Dynamic DAG Layout ───────────────────────────────────────────────────────
@@ -687,7 +829,7 @@ export default function AutonomousPage() {
     const kpis = analytics?.kpis;
     const narrative = activeResult?.result?.narrative as string | undefined;
 
-    const formattedNarrative = formatSectionNarrative(sections);
+    const vizNarr = buildPerVizNarratives(sections, narrative);
 
     const personaTitle = PERSONA_KEY_TO_TITLE[activePersonaKey];
 
@@ -809,18 +951,18 @@ export default function AutonomousPage() {
               The detection engine scans POS, weather, competitor, promotional, and digital signals
               to surface anomalies ranked by potential revenue impact over an 11-day horizon.
             </p>
-            <AnomalyTable data={analytics.anomalies} narrative={formattedNarrative || narrative} />
-            <DeviationHeatmap data={analytics.heatmap} narrative={formattedNarrative || narrative} />
-            <VarianceHistogram data={analytics.variance} narrative={formattedNarrative || narrative} />
-            <CrossDeptSignalStrip anomalies={analytics.anomalies} narrative={formattedNarrative || narrative} />
+            <div className="mb-10"><AnomalyTable data={analytics.anomalies} narrative={vizNarr.anomaly_table || narrative} /></div>
+            <div className="mb-10"><DeviationHeatmap data={analytics.heatmap} narrative={vizNarr.heatmap || narrative} /></div>
+            <div className="mb-10"><VarianceHistogram data={analytics.variance} narrative={vizNarr.variance || narrative} /></div>
+            <div className="mb-10"><CrossDeptSignalStrip anomalies={analytics.anomalies} narrative={vizNarr.cross_dept || narrative} /></div>
 
             <StepHeader stepNumber={2} title="Explain" subtitle="Root cause attribution and recovery trajectory for each detected anomaly." />
             <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
               Each deviation is decomposed into its contributing drivers — weather, promotions,
               competitor actions, and digital signals — with confidence-weighted attribution.
             </p>
-            <DriverAttribution data={analytics.drivers} narrative={formattedNarrative || narrative} />
-            <RecoveryTimeline data={analytics.recovery} narrative={formattedNarrative || narrative} />
+            <div className="mb-10"><DriverAttribution data={analytics.drivers} narrative={vizNarr.drivers || narrative} /></div>
+            <div className="mb-10"><RecoveryTimeline data={analytics.recovery} narrative={vizNarr.recovery || narrative} /></div>
 
             <PersonaHandoff persona="Demand Planner" onSwitchPersona={handleSwitchPersona} />
           </>
@@ -834,7 +976,7 @@ export default function AutonomousPage() {
               Detected anomalies are projected forward to estimate stockout probability,
               markdown exposure, and days-to-impact across all affected SKU categories.
             </p>
-            <StockoutRiskTable data={analytics.anomalies} narrative={formattedNarrative || narrative} />
+            <div className="mb-10"><StockoutRiskTable data={analytics.anomalies} narrative={vizNarr.stockout || narrative} /></div>
 
             <StepHeader stepNumber={4} title="Act" subtitle="Recommended replenishment and sourcing actions within guardrails." />
             <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
@@ -846,6 +988,7 @@ export default function AutonomousPage() {
                 <ActionCard key={`${idx}-${ai}`} action={action} />
               )),
             )}
+            <div className="mt-6 mb-10"><ChartExplainer narrative={vizNarr.act || narrative} /></div>
 
             <PersonaHandoff persona="Supply Planner" onSwitchPersona={handleSwitchPersona} />
           </>
@@ -859,13 +1002,15 @@ export default function AutonomousPage() {
               The consolidated briefing aggregates all anomalies, actions, and contentions
               across departments for S&amp;OP review and executive sign-off.
             </p>
-            <ExecutiveBriefingPack
-              summary={summary ?? null}
-              sections={sections}
-              contentions={summary?.cross_department_contentions || []}
-              pendingApprovals={execReport?.pending_approvals || []}
-              narrative={formattedNarrative || narrative}
-            />
+            <div className="mb-10">
+              <ExecutiveBriefingPack
+                summary={summary ?? null}
+                sections={sections}
+                contentions={summary?.cross_department_contentions || []}
+                pendingApprovals={execReport?.pending_approvals || []}
+                narrative={vizNarr.executive || narrative}
+              />
+            </div>
             <ClosingTheLoop stepsCompleted={5} />
           </>
         )}

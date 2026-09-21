@@ -2,6 +2,7 @@
 
 import React from "react";
 import { HowToReadIt } from "./HowToReadIt";
+import { ChartExplainer } from "./ChartExplainer";
 import type { AnomalyRow } from "@/lib/orchestration-types";
 
 interface StockoutRiskTableProps {
@@ -32,7 +33,10 @@ export function StockoutRiskTable({ data, narrative }: StockoutRiskTableProps) {
     <div className="rounded-2xl border border-[var(--border-color)] p-5 mb-6" style={{ background: "var(--hex-card-bg)" }}>
       <div className="flex gap-6">
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-bold text-[var(--hex-text)] mb-1">Stockout & Availability Risk</h3>
+          <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+            <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#DC2626" }}>inventory</span>
+            Stockout &amp; Availability Risk
+          </h3>
           <p className="text-xs text-[var(--hex-text-dim)] mb-4">
             {sorted.length} SKU categories at risk within 7 days — sorted by urgency
           </p>
@@ -85,10 +89,7 @@ export function StockoutRiskTable({ data, narrative }: StockoutRiskTableProps) {
         </div>
       </div>
       {narrative && (
-        <div className="mt-4 rounded-xl border border-[var(--border-color)] p-4" style={{ background: "rgba(60,44,218,0.04)" }}>
-          <p className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-2">AI Narrative</p>
-          <p className="text-sm text-[var(--hex-text)] leading-relaxed">{narrative}</p>
-        </div>
+        <ChartExplainer narrative={narrative} />
       )}
     </div>
   );

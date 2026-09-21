@@ -163,13 +163,45 @@ export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
     if (totalLost > 0) {
       lines.push(`Total lost sales exposure in scope: **${totalLost.toLocaleString()} units**.`);
     }
-    return lines.join("\n");
+
+    // Business Implications
+    const implLines: string[] = [];
+    if (hotCount > scope.length * 0.3) {
+      implLines.push(`Over **${Math.round(hotCount / scope.length * 100)}%** of product-region combinations are outside normal variance — this signals broad portfolio stress, not isolated incidents.`);
+    }
+    if (totalLost > 10000) {
+      implLines.push(`**${totalLost.toLocaleString()} units** of estimated lost sales represent direct revenue leakage and potential customer experience erosion.`);
+    }
+    if (avgDev > 15) {
+      implLines.push(`Average deviation of **${avgDev.toFixed(1)}%** exceeds the action threshold — systemic under-forecasting may be compounding stockout risk.`);
+    } else if (avgDev < -10) {
+      implLines.push(`Negative average deviation of **${avgDev.toFixed(1)}%** indicates over-forecasting — excess inventory and markdown exposure are likely.`);
+    }
+    if (!implLines.length) implLines.push("Deviations are within manageable range — continue monitoring for trend acceleration.");
+
+    // Recommended Actions
+    const actLines: string[] = [];
+    if (isDrillDown) {
+      actLines.push(`Review the top-deviating sub-categories in ${[...selectedL1].join(", ")} for immediate replenishment or markdown decisions.`);
+    } else {
+      actLines.push("Select departments above to drill into sub-category level and identify specific product lines driving the deviation.");
+    }
+    if (hotCount > 0) {
+      actLines.push(`Prioritize the **${Math.min(hotCount, 5)} highest-deviation** cells for same-day action — these carry the largest revenue exposure.`);
+    }
+    actLines.push("Cross-reference with the Driver Attribution section to understand root causes before committing to replenishment orders.");
+
+    return lines.join(" ") + ` |IMPLICATIONS| ${implLines.join(" ")} |ACTIONS| ${actLines.join(" ")}`;
   }, [data, isDrillDown, selectedL1]);
 
   if (!data.length) return <div className="text-sm opacity-60 p-4">No heatmap data available.</div>;
 
   return (
     <div>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+        <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#6366F1" }}>grid_view</span>
+        Portfolio Deviation Heatmap
+      </h3>
       {/* Multi-select L1 filter */}
       <div className="flex items-center gap-2.5 mb-4 flex-wrap">
         <span

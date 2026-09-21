@@ -84,6 +84,10 @@ export function VarianceHistogram({ data, narrative }: VarianceHistogramProps) {
 
   return (
     <div>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+        <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#10B981" }}>monitoring</span>
+        Portfolio Health Overview
+      </h3>
       {/* Zone labels */}
       <div className="flex flex-wrap gap-4 mb-3">
         <div className="flex items-center gap-2">

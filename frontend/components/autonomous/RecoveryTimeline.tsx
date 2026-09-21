@@ -4,6 +4,7 @@ import React, { useMemo } from "react";
 import dynamic from "next/dynamic";
 import type { RecoveryPoint } from "@/lib/orchestration-types";
 import { HowToReadIt } from "./HowToReadIt";
+import { ChartExplainer } from "./ChartExplainer";
 
 const Plot = dynamic(() => import("react-plotly.js"), {
   ssr: false,
@@ -171,6 +172,10 @@ export function RecoveryTimeline({ data, narrative }: RecoveryTimelineProps) {
 
   return (
     <div className="space-y-4">
+      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+        <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#0EA5E9" }}>timeline</span>
+        14-Day Recovery Trajectory
+      </h3>
       <div className="flex gap-4 items-start">
         <div className="flex-1 rounded-xl border p-2" style={{ borderColor: "var(--hex-border, #334155)", background: "var(--hex-surface-1, #1e293b)" }}>
           <Plot
@@ -196,12 +201,7 @@ export function RecoveryTimeline({ data, narrative }: RecoveryTimelineProps) {
         <HowToReadIt bullets={howToReadBullets} />
       </div>
 
-      {narrative && (
-        <div className="rounded-xl border border-[var(--border-color)] p-4" style={{ background: "rgba(60,44,218,0.04)" }}>
-          <p className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-2">AI Narrative</p>
-          <p className="text-sm text-[var(--hex-text)] leading-relaxed">{narrative}</p>
-        </div>
-      )}
+      <ChartExplainer narrative={narrative} />
     </div>
   );
 }

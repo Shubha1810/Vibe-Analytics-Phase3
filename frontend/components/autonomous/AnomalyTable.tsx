@@ -45,6 +45,10 @@ export function AnomalyTable({ data, narrative }: AnomalyTableProps) {
 
   return (
     <div>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+        <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#EF4444" }}>warning</span>
+        Multi-Signal Anomaly Detection
+      </h3>
       {/* Summary pills */}
       <div className="flex flex-wrap gap-2 mb-3">
         <span

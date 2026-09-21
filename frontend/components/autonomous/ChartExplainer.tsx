@@ -6,18 +6,21 @@ interface ChartExplainerProps {
   narrative?: string | null;
 }
 
-/** Bold dollar amounts, percentages, and basis-point values in a text segment. */
+/** Bold dollar amounts, percentages, basis-point values, AND **markdown bold** in a text segment. */
 function boldMetrics(text: string): React.ReactNode[] {
-  const pattern = /(\$[\d,.]+[KMB]?|\d+\.?\d*%|\d+\.?\d*pp)/g;
+  // Combined pattern: **markdown bold** (non-greedy) OR $-amounts OR percentages OR pp values
+  const pattern = /(\*\*(.+?)\*\*|\$[\d,.]+[KMB]?|\d+\.?\d*%|\d+\.?\d*pp)/g;
   const parts: React.ReactNode[] = [];
   let last = 0;
   let match: RegExpExecArray | null;
   let idx = 0;
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > last) parts.push(text.slice(last, match.index));
+    // match[2] is the capture group inside ** **, if present
+    const display = match[2] ?? match[0];
     parts.push(
-      <strong key={`m${idx++}`} style={{ color: "var(--hex-text, #e2e8f0)", fontWeight: 700 }}>
-        {match[0]}
+      <strong key={`m${idx++}`} style={{ color: "var(--hex-text, #1e293b)", fontWeight: 700 }}>
+        {display}
       </strong>,
     );
     last = match.index + match[0].length;
@@ -84,7 +87,6 @@ function tryParseReport(raw: string): ParsedReport | null {
       }
     }
 
-    // Sort by severity (high impact first)
     findings.sort((a, b) => a.severity - b.severity);
 
     return {
@@ -96,10 +98,83 @@ function tryParseReport(raw: string): ParsedReport | null {
   }
 }
 
+/** Parse delimited sections: |IMPLICATIONS| and |ACTIONS| markers split the narrative. */
+function parseDelimitedSections(text: string): {
+  main: string;
+  implications: string[];
+  actions: string[];
+} {
+  const implMatch = text.indexOf("|IMPLICATIONS|");
+  const actMatch = text.indexOf("|ACTIONS|");
+
+  let mainText = text;
+  let implText = "";
+  let actText = "";
+
+  if (implMatch >= 0 || actMatch >= 0) {
+    const firstSplit = Math.min(
+      implMatch >= 0 ? implMatch : Infinity,
+      actMatch >= 0 ? actMatch : Infinity,
+    );
+    mainText = text.slice(0, firstSplit).trim();
+
+    if (implMatch >= 0) {
+      const implStart = implMatch + "|IMPLICATIONS|".length;
+      const implEnd = actMatch > implMatch ? actMatch : text.length;
+      implText = text.slice(implStart, implEnd).trim();
+    }
+
+    if (actMatch >= 0) {
+      const actStart = actMatch + "|ACTIONS|".length;
+      const actEnd = implMatch > actMatch ? implMatch : text.length;
+      actText = text.slice(actStart, actEnd).trim();
+    }
+  }
+
+  return {
+    main: mainText,
+    implications: implText ? splitSentences(implText) : [],
+    actions: actText ? splitSentences(actText) : [],
+  };
+}
+
+function SectionHeader({ icon, label, color }: { icon: string; label: string; color: string }) {
+  return (
+    <p
+      className="text-[10px] font-semibold uppercase tracking-wider mt-4 mb-1.5 flex items-center gap-1.5"
+      style={{ color }}
+    >
+      <span className="material-icons-outlined" style={{ fontSize: "14px" }}>{icon}</span>
+      {label}
+    </p>
+  );
+}
+
+function BulletList({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-1">
+      {items.map((b, i) => (
+        <li
+          key={i}
+          className="text-sm leading-relaxed flex items-start gap-2"
+          style={{ color: "var(--hex-text, #1e293b)" }}
+        >
+          <span className="mt-0.5 flex-shrink-0" style={{ color: "#6366F1" }}>•</span>
+          <span>{boldMetrics(b)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function ChartExplainer({ narrative }: ChartExplainerProps) {
   if (!narrative) return null;
 
-  const parsed = tryParseReport(narrative);
+  // First, extract delimited sections (|IMPLICATIONS|, |ACTIONS|)
+  const { main, implications, actions } = parseDelimitedSections(narrative);
+
+  // Then parse the main body
+  const parsed = tryParseReport(main);
   let lead: string;
   let bullets: string[];
 
@@ -107,7 +182,7 @@ export function ChartExplainer({ narrative }: ChartExplainerProps) {
     lead = parsed.lead;
     bullets = parsed.findings;
   } else {
-    const sentences = splitSentences(narrative);
+    const sentences = splitSentences(main);
     lead = sentences[0] ?? "";
     bullets = sentences.slice(1);
   }
@@ -142,34 +217,34 @@ export function ChartExplainer({ narrative }: ChartExplainerProps) {
       {lead && (
         <p
           className="text-sm leading-relaxed mb-2"
-          style={{ color: "var(--hex-text, #e2e8f0)" }}
+          style={{ color: "var(--hex-text, #1e293b)" }}
         >
           <strong style={{ color: "#6366F1" }}>Strategic Insight: </strong>
           {boldMetrics(lead)}
         </p>
       )}
 
-      {/* Bullet findings */}
+      {/* Key Findings */}
       {bullets.length > 0 && (
         <>
-          <p
-            className="text-[10px] font-semibold uppercase tracking-wider mt-3 mb-1.5"
-            style={{ color: "var(--hex-text-secondary, #94a3b8)" }}
-          >
-            Key Findings
-          </p>
-          <ul className="space-y-1">
-            {bullets.map((b, i) => (
-              <li
-                key={i}
-                className="text-sm leading-relaxed flex items-start gap-2"
-                style={{ color: "var(--hex-text, #e2e8f0)" }}
-              >
-                <span className="mt-0.5 flex-shrink-0" style={{ color: "#6366F1" }}>•</span>
-                <span>{boldMetrics(b)}</span>
-              </li>
-            ))}
-          </ul>
+          <SectionHeader icon="analytics" label="Key Findings" color="var(--hex-text-secondary, #94a3b8)" />
+          <BulletList items={bullets} />
+        </>
+      )}
+
+      {/* Business Implications */}
+      {implications.length > 0 && (
+        <>
+          <SectionHeader icon="trending_up" label="Business Implications" color="#D97706" />
+          <BulletList items={implications} />
+        </>
+      )}
+
+      {/* Recommended Actions */}
+      {actions.length > 0 && (
+        <>
+          <SectionHeader icon="task_alt" label="Recommended Actions" color="#059669" />
+          <BulletList items={actions} />
         </>
       )}
     </div>

@@ -3,6 +3,7 @@
 import React from "react";
 import type { EnterpriseSummary, ReportSection, RecommendedAction } from "@/lib/orchestration-types";
 import { HowToReadIt } from "./HowToReadIt";
+import { ChartExplainer } from "./ChartExplainer";
 
 interface ExecutiveBriefingPackProps {
   summary: EnterpriseSummary | null | undefined;
@@ -126,7 +127,27 @@ export function ExecutiveBriefingPack({ summary, sections, contentions, pendingA
           <div className="space-y-2">
             {contentions.map((c, i) => (
               <div key={i} className="rounded-xl border border-amber-200 p-4 text-sm" style={{ color: "var(--hex-text, #e2e8f0)", background: "rgba(245,158,11,0.05)" }}>
-                {typeof c === "string" ? c : JSON.stringify(c)}
+                {typeof c === "string" ? c : (
+                  <div className="space-y-2">
+                    {(c as any).competing_departments && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold uppercase" style={{ color: "#F59E0B" }}>Departments:</span>
+                        {((c as any).competing_departments as string[]).map((d: string, di: number) => (
+                          <span key={di} className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(245,158,11,0.15)", color: "#B45309" }}>{d}</span>
+                        ))}
+                      </div>
+                    )}
+                    {(c as any).resource && (
+                      <p className="text-xs"><strong style={{ color: "var(--hex-text, #1e293b)" }}>Resource:</strong> {(c as any).resource}</p>
+                    )}
+                    {(c as any).recommendation && (
+                      <p className="text-sm leading-relaxed" style={{ color: "var(--hex-text, #1e293b)" }}>{(c as any).recommendation}</p>
+                    )}
+                    {(c as any).urgency && (
+                      <p className="text-xs mt-1"><span className="font-semibold" style={{ color: "#DC2626" }}>Urgency:</span> {(c as any).urgency}</p>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -134,10 +155,7 @@ export function ExecutiveBriefingPack({ summary, sections, contentions, pendingA
       )}
 
       {narrative && (
-        <div className="rounded-xl border border-[var(--border-color)] p-4" style={{ background: "rgba(60,44,218,0.04)" }}>
-          <p className="text-xs font-semibold text-[var(--hex-text-dim)] uppercase tracking-wider mb-2">AI Narrative</p>
-          <p className="text-sm text-[var(--hex-text)] leading-relaxed">{narrative}</p>
-        </div>
+        <ChartExplainer narrative={narrative} />
       )}
     </div>
   );

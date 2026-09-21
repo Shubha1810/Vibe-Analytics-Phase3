@@ -55,6 +55,10 @@ export function CrossDeptSignalStrip({ anomalies, narrative }: CrossDeptSignalSt
 
   return (
     <div>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+        <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#F59E0B" }}>hub</span>
+        Cross-Department Signal Awareness
+      </h3>
       <div className="flex gap-4 max-lg:flex-col">
         <div className="flex-1 flex flex-col gap-3">
           {/* Department cards */}
