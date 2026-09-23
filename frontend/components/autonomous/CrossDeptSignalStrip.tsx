@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import type { AnomalyRow } from "@/lib/orchestration-types";
 import { HowToReadIt } from "./HowToReadIt";
 import { ChartExplainer } from "./ChartExplainer";
@@ -8,6 +8,7 @@ import { ChartExplainer } from "./ChartExplainer";
 interface CrossDeptSignalStripProps {
   anomalies: AnomalyRow[];
   narrative?: string | null;
+  vizNumber?: string;
 }
 
 const HOW_TO_READ = [
@@ -22,13 +23,13 @@ const SIGNAL_ICONS: Record<string, string> = {
   Digital: "trending_up",
 };
 
-export function CrossDeptSignalStrip({ anomalies, narrative }: CrossDeptSignalStripProps) {
+export function CrossDeptSignalStrip({ anomalies, narrative, vizNumber }: CrossDeptSignalStripProps) {
   if (!anomalies.length) return null;
 
-  // Group by department (use risk_type or category root as department proxy)
+  // Group by department (L1)
   const deptMap = new Map<string, AnomalyRow[]>();
   for (const a of anomalies) {
-    const dept = a.category.split(" > ")[0] || a.category;
+    const dept = a.department || "Unknown";
     if (!deptMap.has(dept)) deptMap.set(dept, []);
     deptMap.get(dept)!.push(a);
   }
@@ -53,11 +54,44 @@ export function CrossDeptSignalStrip({ anomalies, narrative }: CrossDeptSignalSt
     .filter(([, count]) => count >= 2)
     .sort((a, b) => b[1] - a[1]);
 
+  const computedInsight = useMemo(() => {
+    if (!anomalies.length) return null;
+    const deptCount = departments.length;
+    const totalAnomalies = anomalies.length;
+
+    const lines: string[] = [];
+    lines.push(`Cross-department signal scan: **${totalAnomalies}** anomalies across **${deptCount}** departments.`);
+    departments.forEach(({ dept, total, high }) => {
+      lines.push(`**${dept}**: **${total}** anomalies (**${high}** high-severity).`);
+    });
+
+    if (commonSignals.length) {
+      const signalNames = commonSignals.map(([name, count]) => `**${name}** (${count} depts)`).join(", ");
+      lines.push(`Common signal forces: ${signalNames} — these drivers are active across multiple departments simultaneously.`);
+    }
+
+    const implLines: string[] = [];
+    if (commonSignals.length >= 2) {
+      implLines.push(`**${commonSignals.length}** shared drivers detected — this indicates a systemic demand event, not isolated department issues. Responses should be coordinated.`);
+    } else if (commonSignals.length === 1) {
+      implLines.push(`Single shared driver (**${commonSignals[0][0]}**) across departments — monitor for amplification but responses can be department-specific.`);
+    } else {
+      implLines.push("No cross-department signal convergence — anomalies appear department-specific and can be managed independently.");
+    }
+
+    const actLines: string[] = [];
+    actLines.push("Check if departments are competing for the same logistics or supplier capacity before approving interventions.");
+    if (commonSignals.length) actLines.push("Coordinate with peer planners to align on shared-resource priorities before escalating.");
+    actLines.push("Escalate cross-department contentions to the Director for S&OP resolution.");
+
+    return lines.join(" ") + ` |IMPLICATIONS| ${implLines.join(" ")} |ACTIONS| ${actLines.join(" ")}`;
+  }, [anomalies, departments, commonSignals]);
+
   return (
     <div>
-      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-1" style={{ color: "var(--hex-text, #1e293b)" }}>
         <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#F59E0B" }}>hub</span>
-        Cross-Department Signal Awareness
+        {vizNumber && <span className="font-mono text-sm mr-1 opacity-70">{vizNumber}</span>}Cross-Department Signal Awareness
       </h3>
       <div className="flex gap-4 max-lg:flex-col">
         <div className="flex-1 flex flex-col gap-3">
@@ -186,7 +220,7 @@ export function CrossDeptSignalStrip({ anomalies, narrative }: CrossDeptSignalSt
         <HowToReadIt bullets={HOW_TO_READ} />
       </div>
 
-      <ChartExplainer narrative={narrative} />
+      <ChartExplainer narrative={computedInsight || narrative} />
     </div>
   );
 }

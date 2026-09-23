@@ -21,6 +21,7 @@ const Plot = dynamic(() => import("react-plotly.js"), {
 interface VarianceHistogramProps {
   data: VarianceBucket[];
   narrative?: string | null;
+  vizNumber?: string;
 }
 
 function bucketColor(bucket: number): string {
@@ -39,7 +40,7 @@ const HOW_TO_READ = [
   "The Portfolio Health card shows distributional statistics for the entire SKU set.",
 ];
 
-export function VarianceHistogram({ data, narrative }: VarianceHistogramProps) {
+export function VarianceHistogram({ data, narrative, vizNumber }: VarianceHistogramProps) {
   const { stats, colors, zoneCounts } = useMemo(() => {
     const totalSkus = data.reduce((s, d) => s + d.sku_count, 0);
     const weightedSum = data.reduce((s, d) => s + d.deviation_bucket * d.sku_count, 0);
@@ -80,13 +81,51 @@ export function VarianceHistogram({ data, narrative }: VarianceHistogramProps) {
     };
   }, [data]);
 
+  const computedInsight = useMemo(() => {
+    if (!data.length) return null;
+    const { totalSkus, mean, stdDev, skew } = stats;
+    const { normal, watch, anomaly, normalPct, watchPct, anomalyPct } = zoneCounts;
+
+    const lines: string[] = [];
+    lines.push(`Portfolio health scan: **${totalSkus.toLocaleString()}** SKUs analyzed. **${normalPct}%** (${normal.toLocaleString()} SKUs) within normal ±10% variance band.`);
+    lines.push(`**${watch}** SKUs (**${watchPct}%**) in the watch zone (±10-20%), **${anomaly}** SKUs (**${anomalyPct}%**) flagged as true anomalies (≥20% deviation).`);
+    lines.push(`Distribution: mean **${mean.toFixed(1)}%**, std dev **${stdDev.toFixed(1)}**, skew **${skew.toFixed(2)}**.`);
+    
+    if (Number(normalPct) < 50) {
+      lines.push(`Less than half the portfolio is within normal range — this signals broad forecast stress.`);
+    }
+
+    // Implications
+    const implLines: string[] = [];
+    if (Number(anomalyPct) > 30) {
+      implLines.push(`Over **${anomalyPct}%** of the portfolio shows extreme deviation (>20%) — the baseline forecast may need emergency recalibration.`);
+    } else if (Number(anomalyPct) > 15) {
+      implLines.push(`**${anomalyPct}%** extreme-deviation SKUs is above typical thresholds — targeted forecast adjustments are warranted.`);
+    } else {
+      implLines.push(`Anomaly rate of **${anomalyPct}%** is within manageable range — standard monitoring cycles should suffice.`);
+    }
+    if (Math.abs(skew) > 0.5) {
+      implLines.push(`Distribution skew of **${skew.toFixed(2)}** indicates ${skew > 0 ? "more over-forecasting (right tail) — stockout risk is elevated" : "more under-forecasting (left tail) — markdown and overstock exposure"}.`);
+    }
+
+    // Actions
+    const actLines: string[] = [];
+    actLines.push(`Flag the **${anomaly}** extreme-deviation SKUs for immediate root cause investigation.`);
+    if (Number(watchPct) > 25) {
+      actLines.push(`The **${watch}** watch-zone SKUs should be reviewed in the next weekly planning cycle to prevent escalation.`);
+    }
+    actLines.push("Use the distribution shape to determine if issues are broad (flat) or concentrated (long tail) — this determines whether a systemic or targeted response is needed.");
+
+    return lines.join(" ") + ` |IMPLICATIONS| ${implLines.join(" ")} |ACTIONS| ${actLines.join(" ")}`;
+  }, [data, stats, zoneCounts]);
+
   if (!data.length) return <div className="text-sm opacity-60 p-4">No variance data available.</div>;
 
   return (
     <div>
-      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-1" style={{ color: "var(--hex-text, #1e293b)" }}>
         <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#10B981" }}>monitoring</span>
-        Portfolio Health Overview
+        {vizNumber && <span className="font-mono text-sm mr-1 opacity-70">{vizNumber}</span>}Portfolio Health Overview
       </h3>
       {/* Zone labels */}
       <div className="flex flex-wrap gap-4 mb-3">
@@ -105,21 +144,36 @@ export function VarianceHistogram({ data, narrative }: VarianceHistogramProps) {
         <div className="flex items-center gap-2">
           <span className="w-3 h-3 rounded-sm" style={{ background: "#EF4444" }} />
           <span className="text-xs" style={{ color: "var(--hex-text-secondary, #94a3b8)", fontWeight: 600 }}>
-            Anomaly ≥20% — {zoneCounts.anomaly} SKUs · {zoneCounts.anomalyPct}%
+            Anomaly beyond ±20% — {zoneCounts.anomaly} SKUs · {zoneCounts.anomalyPct}%
           </span>
         </div>
       </div>
 
       <div className="flex gap-4 max-lg:flex-col">
-        <div className="flex-1 flex gap-4">
+        <div
+          className="flex-1 rounded-xl border"
+          style={{
+            borderColor: "var(--hex-border, #334155)",
+            background: "var(--hex-surface-1, #1e293b)",
+          }}
+        >
+          {/* Stats strip */}
+          <div className="flex flex-wrap gap-3 px-3 pt-3 pb-1">
+            {[
+              { label: "Total SKUs", value: stats.totalSkus.toLocaleString() },
+              { label: "Mean", value: `${stats.mean.toFixed(1)}%` },
+              { label: "Median", value: `${stats.median}%` },
+              { label: "Std Dev", value: stats.stdDev.toFixed(1) },
+              { label: "Skew", value: stats.skew.toFixed(2) },
+            ].map((s) => (
+              <div key={s.label} className="flex items-center gap-1.5 text-xs">
+                <span style={{ color: "var(--hex-text-dim, #64748b)" }}>{s.label}:</span>
+                <span className="font-mono font-semibold" style={{ color: "var(--hex-text, #e2e8f0)" }}>{s.value}</span>
+              </div>
+            ))}
+          </div>
           {/* Chart */}
-          <div
-            className="flex-1 rounded-xl border p-2"
-            style={{
-              borderColor: "var(--hex-border, #334155)",
-              background: "var(--hex-surface-1, #1e293b)",
-            }}
-          >
+          <div className="p-2">
             <Plot
               data={[
                 {
@@ -146,41 +200,8 @@ export function VarianceHistogram({ data, narrative }: VarianceHistogramProps) {
               style={{ width: "100%", height: "360px" }}
             />
           </div>
-
-          {/* Portfolio Health panel */}
-          <div
-            className="w-48 flex-shrink-0 rounded-xl border p-4 flex flex-col gap-3 text-sm"
-            style={{
-              borderColor: "var(--hex-border, #334155)",
-              background: "var(--hex-surface-1, #1e293b)",
-            }}
-          >
-            <div
-              className="font-semibold text-xs uppercase tracking-wider mb-1"
-              style={{ color: "var(--hex-text-secondary, #94a3b8)" }}
-            >
-              Portfolio Health
-            </div>
-            {[
-              { label: "Total SKUs", value: stats.totalSkus.toLocaleString() },
-              { label: "Mean", value: `${stats.mean.toFixed(1)}%` },
-              { label: "Median", value: `${stats.median}%` },
-              { label: "Std Dev", value: stats.stdDev.toFixed(1) },
-              { label: "Skew", value: stats.skew.toFixed(2) },
-            ].map((s) => (
-              <div key={s.label}>
-                <div className="text-xs" style={{ color: "var(--hex-text-secondary, #94a3b8)" }}>
-                  {s.label}
-                </div>
-                <div className="font-mono font-semibold" style={{ color: "var(--hex-text, #e2e8f0)" }}>
-                  {s.value}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
 
-        {/* HOW TO READ IT sidebar */}
         <HowToReadIt bullets={HOW_TO_READ} />
       </div>
 
@@ -197,7 +218,7 @@ export function VarianceHistogram({ data, narrative }: VarianceHistogramProps) {
         {stats.totalSkus > 0 && <>, representing <strong>{zoneCounts.anomalyPct}%</strong> of SKUs at stake</>}.
       </div>
 
-      <ChartExplainer narrative={narrative} />
+      <ChartExplainer narrative={computedInsight || narrative} />
     </div>
   );
 }

@@ -34,6 +34,7 @@ import { PersonaBlurb } from "@/components/autonomous/PersonaBlurb";
 import { PersonaHandoff } from "@/components/autonomous/PersonaHandoff";
 import { CrossDeptSignalStrip } from "@/components/autonomous/CrossDeptSignalStrip";
 import { StockoutRiskTable } from "@/components/autonomous/StockoutRiskTable";
+import { RecommendationCards } from "@/components/autonomous/RecommendationCards";
 import { ExecutiveBriefingPack } from "@/components/autonomous/ExecutiveBriefingPack";
 import { ClosingTheLoop } from "@/components/autonomous/ClosingTheLoop";
 import { ChartExplainer } from "@/components/autonomous/ChartExplainer";
@@ -881,31 +882,7 @@ export default function AutonomousPage() {
         </div>
 
         {/* BrightwayIntro */}
-        <BrightwayIntro />
-
-        {/* Persona Tabs */}
-        <div className="flex gap-1 mb-6 border-b border-[var(--border-color)]">
-          {PERSONA_KEYS.map((k) => {
-            const tab = PERSONA_TAB_LABELS[k];
-            const isActive = k === activePersonaKey;
-            return (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setActivePersonaKey(k)}
-                className="px-4 py-2.5 text-sm font-medium transition-all border-none cursor-pointer"
-                style={{
-                  background: isActive ? "var(--hex-card-bg)" : "transparent",
-                  color: isActive ? "var(--hex-primary)" : "var(--hex-text-dim)",
-                  borderBottom: isActive ? "2px solid var(--hex-primary)" : "2px solid transparent",
-                }}
-              >
-                {tab.label}
-                <span className="text-[10px] ml-1.5 opacity-60">{tab.steps}</span>
-              </button>
-            );
-          })}
-        </div>
+        <BrightwayIntro timeContext={analytics?.timeContext ?? null} />
 
         {/* DATA GAP callout */}
         {isDataGap && (
@@ -951,18 +928,17 @@ export default function AutonomousPage() {
               The detection engine scans POS, weather, competitor, promotional, and digital signals
               to surface anomalies ranked by potential revenue impact over an 11-day horizon.
             </p>
-            <div className="mb-10"><AnomalyTable data={analytics.anomalies} narrative={vizNarr.anomaly_table || narrative} /></div>
-            <div className="mb-10"><DeviationHeatmap data={analytics.heatmap} narrative={vizNarr.heatmap || narrative} /></div>
-            <div className="mb-10"><VarianceHistogram data={analytics.variance} narrative={vizNarr.variance || narrative} /></div>
-            <div className="mb-10"><CrossDeptSignalStrip anomalies={analytics.anomalies} narrative={vizNarr.cross_dept || narrative} /></div>
+            <div className="mb-10"><DeviationHeatmap data={analytics.heatmap} narrative={vizNarr.heatmap || narrative} vizNumber="1.1" /></div>
+            <div className="mb-10"><VarianceHistogram data={analytics.variance} narrative={vizNarr.variance || narrative} vizNumber="1.2" /></div>
+            <div className="mb-10"><AnomalyTable data={analytics.anomalies} narrative={vizNarr.anomaly_table || narrative} vizNumber="1.3" /></div>
+            <div className="mb-10"><CrossDeptSignalStrip anomalies={analytics.anomalies} narrative={vizNarr.cross_dept || narrative} vizNumber="1.4" /></div>
 
             <StepHeader stepNumber={2} title="Explain" subtitle="Root cause attribution and recovery trajectory for each detected anomaly." />
             <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
               Each deviation is decomposed into its contributing drivers — weather, promotions,
               competitor actions, and digital signals — with confidence-weighted attribution.
             </p>
-            <div className="mb-10"><DriverAttribution data={analytics.drivers} narrative={vizNarr.drivers || narrative} /></div>
-            <div className="mb-10"><RecoveryTimeline data={analytics.recovery} narrative={vizNarr.recovery || narrative} /></div>
+            <div className="mb-10"><DriverAttribution data={analytics.drivers} narrative={vizNarr.drivers || narrative} vizNumber="2.1" /></div>
 
             <PersonaHandoff persona="Demand Planner" onSwitchPersona={handleSwitchPersona} />
           </>
@@ -971,24 +947,22 @@ export default function AutonomousPage() {
         {/* ── Supply Planner (Steps 3-4) ── */}
         {activePersonaKey === "supply_planner" && analytics && (
           <>
-            <StepHeader stepNumber={3} title="Predict" subtitle="Forward-looking stockout and markdown risk projections across affected product lines." />
+            <StepHeader stepNumber={3} title="Predict" subtitle="Forward-looking recovery projections and stockout risk across affected product lines." />
             <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
-              Detected anomalies are projected forward to estimate stockout probability,
-              markdown exposure, and days-to-impact across all affected SKU categories.
+              Recovery value decay, daily erosion rates, and benefit-cost ratios quantify
+              the urgency window for each category — enabling prioritized supply response.
             </p>
-            <div className="mb-10"><StockoutRiskTable data={analytics.anomalies} narrative={vizNarr.stockout || narrative} /></div>
+            <div className="mb-10"><RecoveryTimeline data={analytics.recovery} narrative={vizNarr.recovery || narrative} vizNumber="3.1" /></div>
+            <div className="mb-10"><StockoutRiskTable data={analytics.stockout ?? []} narrative={vizNarr.stockout || narrative} vizNumber="3.2" /></div>
 
             <StepHeader stepNumber={4} title="Act" subtitle="Recommended replenishment and sourcing actions within guardrails." />
             <p className="text-sm text-[var(--hex-text-dim)] mb-6 -mt-2">
               Prescriptive recommendations with cost-benefit analysis, confidence scores,
-              and authority-level tagging for rapid decision-making.
+              and category-region prioritization for rapid decision-making.
             </p>
-            {sections.map((s, idx) =>
-              (s.recommended_actions || []).map((action, ai) => (
-                <ActionCard key={`${idx}-${ai}`} action={action} />
-              )),
-            )}
-            <div className="mt-6 mb-10"><ChartExplainer narrative={vizNarr.act || narrative} /></div>
+            <div className="mb-10">
+              <RecommendationCards data={analytics.recommendations ?? []} narrative={vizNarr.act || narrative} />
+            </div>
 
             <PersonaHandoff persona="Supply Planner" onSwitchPersona={handleSwitchPersona} />
           </>
@@ -1112,16 +1086,18 @@ function KPICard({
   subtitle?: string;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--border-color)] p-4" style={{ background: "var(--hex-card-bg)" }}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="material-icons-outlined" style={{ fontSize: "18px", color: color || "var(--hex-primary)" }}>
-          {icon}
-        </span>
-        <span className="text-[10px] uppercase tracking-wider font-semibold text-[var(--hex-text-dim)]">{label}</span>
+    <div className="rounded-xl border p-5 flex flex-col justify-between" 
+      style={{ background: "var(--hex-card-bg)", borderColor: "var(--hex-border, #e2e8f0)", minHeight: "120px" }}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] uppercase tracking-widest font-bold" style={{ color: "var(--hex-text-dim)", letterSpacing: "0.1em" }}>{label}</span>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center" 
+          style={{ background: `${color || "var(--hex-primary)"}15` }}>
+          <span className="material-icons-outlined" style={{ fontSize: "18px", color: color || "var(--hex-primary)" }}>{icon}</span>
+        </div>
       </div>
-      <div className="text-xl font-bold text-[var(--hex-text)]">{value ?? "—"}</div>
+      <div className="text-2xl font-extrabold tracking-tight" style={{ color: "var(--hex-text)", lineHeight: 1.1 }}>{value ?? "—"}</div>
       {subtitle && (
-        <p className="text-[10px] text-[var(--hex-text-dim)] mt-1 leading-tight">{subtitle}</p>
+        <p className="text-[10px] mt-2 leading-snug" style={{ color: "var(--hex-text-dim)" }}>{subtitle}</p>
       )}
     </div>
   );

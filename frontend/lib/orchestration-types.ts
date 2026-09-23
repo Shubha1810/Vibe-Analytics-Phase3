@@ -140,6 +140,8 @@ export interface PortfolioKPIs {
 
 export interface AnomalyRow {
   category: string;
+  category_l2: string;
+  department: string;
   region: string;
   risk_type: string;
   severity: string;
@@ -171,6 +173,7 @@ export interface VarianceBucket {
 export interface DriverRow {
   department: string;
   category: string;
+  category_l2: string;
   driver_name: string;
   contribution_pp: number;
   confidence_score: number;
@@ -182,6 +185,8 @@ export interface DriverRow {
 export interface RecoveryPoint {
   department: string;
   category: string;
+  category_l2: string;
+  region: string;
   risk_type: string;
   severity: string;
   persona_owner: string;
@@ -194,6 +199,35 @@ export interface RecoveryPoint {
   total_value_at_risk: number;
 }
 
+export interface StockoutRow {
+  risk_id: string;
+  category_l2: string;
+  category: string;
+  region: string;
+  stockout_rate: number;
+  severity: string;
+  units_at_risk: number;
+  value_at_risk: number;
+  days_to_impact: number;
+  primary_driver: string;
+  confidence: number;
+}
+
+export interface RecommendationCard {
+  category_l2: string;
+  region: string;
+  severity: string;
+  primary_driver: string;
+  posture: string;
+  impact_usd: number;
+  cost_usd: number;
+  benefit_cost_ratio: number;
+  recoverable_usd: number;
+  confidence: number;
+  days_to_impact: number;
+  risk_count: number;
+}
+
 export interface AnalyticsData {
   kpis: PortfolioKPIs;
   anomalies: AnomalyRow[];
@@ -201,6 +235,9 @@ export interface AnalyticsData {
   variance: VarianceBucket[];
   drivers: DriverRow[];
   recovery: RecoveryPoint[];
+  stockout: StockoutRow[];
+  recommendations: RecommendationCard[];
+  timeContext: { currentWeek: string; earliestWeek: string; totalWeeks: number };
 }
 
 // ── Multi-Run (All-Persona) Types ───────────────────────────────────────────

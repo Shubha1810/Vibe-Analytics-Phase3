@@ -21,6 +21,7 @@ const Plot = dynamic(() => import("react-plotly.js"), {
 interface DeviationHeatmapProps {
   data: HeatmapCell[];
   narrative?: string | null;
+  vizNumber?: string;
 }
 
 const HOW_TO_READ_L1 = [
@@ -39,24 +40,15 @@ const HOW_TO_READ_L2 = [
   "Deselect all departments to return to the high-level view.",
 ];
 
-export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
-  const [selectedL1, setSelectedL1] = useState<Set<string>>(new Set());
+export function DeviationHeatmap({ data, narrative, vizNumber }: DeviationHeatmapProps) {
+  const [selectedL1, setSelectedL1] = useState<string | null>(null);
 
   // Derive all L1 departments from data (deduplicated)
   const allL1 = useMemo(() => {
     return [...new Set(data.map((d) => d.category_l1).filter(Boolean))].sort();
   }, [data]);
 
-  const isDrillDown = selectedL1.size > 0;
-
-  const toggleL1 = (dept: string) => {
-    setSelectedL1((prev) => {
-      const next = new Set(prev);
-      if (next.has(dept)) next.delete(dept);
-      else next.add(dept);
-      return next;
-    });
-  };
+  const isDrillDown = selectedL1 !== null;
 
   // Build heatmap matrix
   const { regions, categories, z, text, summaryText } = useMemo(() => {
@@ -101,8 +93,8 @@ export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
       return { regions: regionSet, categories: allL1, z: zMatrix, text: textMatrix, summaryText: summary };
     }
 
-    // L2 drill-down: show sub-categories for selected L1(s)
-    const filtered = data.filter((d) => selectedL1.has(d.category_l1));
+    // L2 drill-down: show sub-categories for selected L1
+    const filtered = data.filter((d) => d.category_l1 === selectedL1);
     const l2Set = [...new Set(filtered.map((d) => d.category_l2))].sort();
 
     // Aggregate at L2 level (in case multiple L3 roll up to same L2)
@@ -136,9 +128,8 @@ export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
       textMatrix.push(textRow);
     }
 
-    const selectedNames = [...selectedL1].join(", ");
     const hotCells = zMatrix.flat().filter((v) => v != null && Math.abs(v) > 10).length;
-    const summary = `Drill-down: ${l2Set.length} sub-categories in ${selectedNames} × ${regionSet.length} regions. ${hotCells} cells exceed ±10% threshold.`;
+    const summary = `Drill-down: ${l2Set.length} sub-categories in ${selectedL1} × ${regionSet.length} regions. ${hotCells} cells exceed ±10% threshold.`;
 
     return { regions: regionSet, categories: l2Set, z: zMatrix, text: textMatrix, summaryText: summary };
   }, [data, allL1, isDrillDown, selectedL1]);
@@ -146,7 +137,7 @@ export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
   // Dynamic insight based on filtered scope
   const scopedInsight = useMemo(() => {
     const scope = isDrillDown
-      ? data.filter((d) => selectedL1.has(d.category_l1))
+      ? data.filter((d) => d.category_l1 === selectedL1)
       : data;
     if (!scope.length) return null;
 
@@ -182,7 +173,7 @@ export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
     // Recommended Actions
     const actLines: string[] = [];
     if (isDrillDown) {
-      actLines.push(`Review the top-deviating sub-categories in ${[...selectedL1].join(", ")} for immediate replenishment or markdown decisions.`);
+      actLines.push(`Review the top-deviating sub-categories in ${selectedL1} for immediate replenishment or markdown decisions.`);
     } else {
       actLines.push("Select departments above to drill into sub-category level and identify specific product lines driving the deviation.");
     }
@@ -198,58 +189,39 @@ export function DeviationHeatmap({ data, narrative }: DeviationHeatmapProps) {
 
   return (
     <div>
-      <h3 className="text-base font-bold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #1e293b)" }}>
+      <h3 className="text-base font-bold mb-3 flex items-center gap-1" style={{ color: "var(--hex-text, #1e293b)" }}>
         <span className="material-icons-outlined" style={{ fontSize: "20px", color: "#6366F1" }}>grid_view</span>
-        Portfolio Deviation Heatmap
+        {vizNumber && <span className="font-mono text-sm mr-1 opacity-70">{vizNumber}</span>}Portfolio Deviation Heatmap
       </h3>
-      {/* Multi-select L1 filter */}
-      <div className="flex items-center gap-2.5 mb-4 flex-wrap">
-        <span
-          className="text-xs font-bold uppercase tracking-wider"
-          style={{ color: "var(--hex-text, #334155)" }}
-        >
+      {/* Department dropdown filter */}
+      <div className="flex items-center gap-3 mb-4">
+        <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--hex-text, #334155)" }}>
           Department:
         </span>
-        {allL1.map((dept, idx) => {
-          const isSelected = selectedL1.has(dept);
-          return (
-            <button
-              key={`dept-${idx}-${dept}`}
-              type="button"
-              onClick={() => toggleL1(dept)}
-              className="rounded-lg px-4 py-2 text-xs font-semibold cursor-pointer transition-all"
-              style={{
-                background: isSelected
-                  ? "linear-gradient(135deg, #4F46E5, #6366F1)"
-                  : "#F1F5F9",
-                color: isSelected ? "#FFFFFF" : "#334155",
-                border: isSelected ? "2px solid #4F46E5" : "2px solid #CBD5E1",
-                boxShadow: isSelected ? "0 2px 8px rgba(79,70,229,0.3)" : "none",
-              }}
-            >
-              {dept}
-            </button>
-          );
-        })}
-        {isDrillDown && (
-          <button
-            type="button"
-            onClick={() => setSelectedL1(new Set())}
-            className="rounded-lg px-4 py-2 text-xs font-semibold cursor-pointer transition-all"
-            style={{
-              background: "transparent",
-              color: "#4F46E5",
-              border: "2px solid #4F46E5",
-            }}
-          >
-            ✕ Clear
-          </button>
-        )}
+        <select
+          value={selectedL1 ?? ""}
+          onChange={(e) => setSelectedL1(e.target.value || null)}
+          style={{
+            background: "var(--hex-surface-2, #0f172a)",
+            color: "var(--hex-text, #e2e8f0)",
+            border: "1px solid var(--hex-border, #334155)",
+            borderRadius: "8px",
+            padding: "6px 12px",
+            fontSize: "13px",
+            cursor: "pointer",
+            minWidth: "180px",
+          }}
+        >
+          <option value="">All Departments</option>
+          {allL1.map((dept) => (
+            <option key={dept} value={dept}>{dept}</option>
+          ))}
+        </select>
       </div>
 
       {/* Scope indicator */}
       <p className="text-[11px] mb-2" style={{ color: "var(--hex-text-dim, #94a3b8)" }}>
-        {isDrillDown ? `Showing Category L2 breakdown for: ${[...selectedL1].join(", ")}` : "Showing Department (L1) level. Select departments above to drill into sub-categories."}
+        {isDrillDown ? `Showing Category L2 breakdown for: ${selectedL1}` : "Showing Department (L1) level. Select a department to drill into sub-categories."}
       </p>
 
       <div className="flex gap-4 max-lg:flex-col">

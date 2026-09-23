@@ -142,10 +142,9 @@ describe("AgentNetworkNode type", () => {
       node_name: "validation_gate",
       agent_name: null,
       wave_no: 3,
-      edges: ["exec_report"],
-      is_control: true,
+      kind: "control",
     };
-    expect(node.is_control).toBe(true);
+    expect(node.kind).toBe("control");
     expect(node.agent_name).toBeNull();
   });
 });
