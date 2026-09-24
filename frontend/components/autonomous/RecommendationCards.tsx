@@ -7,6 +7,7 @@ import { ChartExplainer } from "./ChartExplainer";
 interface RecommendationCardsProps {
   data: RecommendationCard[];
   narrative?: string | null;
+  mode?: "execution" | "communication";
 }
 
 const APPROVAL_COST_THRESHOLD = 250_000;
@@ -58,8 +59,9 @@ function sortCards(cards: RecommendationCard[]): RecommendationCard[] {
   });
 }
 
-export function RecommendationCards({ data, narrative }: RecommendationCardsProps) {
+export function RecommendationCards({ data, narrative, mode = "execution" }: RecommendationCardsProps) {
   const top5 = useMemo(() => sortCards(data).slice(0, 5), [data]);
+  const isCommunication = mode === "communication";
 
   const computedInsight = useMemo(() => {
     if (!top5.length) return null;
@@ -75,7 +77,11 @@ export function RecommendationCards({ data, narrative }: RecommendationCardsProp
     const l3cats = [...new Set(top5.map((c) => c.category_l3))];
 
     const lines: string[] = [];
-    lines.push(`**${top5.length}** highest-impact prescriptive recommendations across **${l3cats.length}** subcategories and **${regions.length}** regions. Total impact: **${formatUSD(totalImpact)}**. Total value at risk: **${formatUSD(totalVAR)}**. Total intervention cost: **${formatUSD(totalCost)}**. Average benefit-cost ratio: **${avgBCR.toFixed(1)}x**.`);
+    if (isCommunication) {
+      lines.push(`**${top5.length}** priority recommendations requiring leadership visibility across **${l3cats.length}** subcategories and **${regions.length}** regions. Total value at risk: **${formatUSD(totalVAR)}**. Total intervention cost: **${formatUSD(totalCost)}**. Average benefit-cost ratio: **${avgBCR.toFixed(1)}x**.`);
+    } else {
+      lines.push(`**${top5.length}** highest-impact prescriptive recommendations across **${l3cats.length}** subcategories and **${regions.length}** regions. Total impact: **${formatUSD(totalImpact)}**. Total value at risk: **${formatUSD(totalVAR)}**. Total intervention cost: **${formatUSD(totalCost)}**. Average benefit-cost ratio: **${avgBCR.toFixed(1)}x**.`);
+    }
     if (topCard) {
       const topAuth = authorityStatus(topCard.cost_usd);
       lines.push(`Highest priority: **${topCard.category_l3}** in **${topCard.region}** (${topCard.category_l2}) \u2014 **${formatUSD(topCard.impact_usd)}** impact, **${formatUSD(topCard.cost_usd)}** cost, **${formatConf(topCard.confidence)}** confidence. Authority: **${topAuth.label}**.`);
@@ -84,25 +90,44 @@ export function RecommendationCards({ data, narrative }: RecommendationCardsProp
     if (approvalCount) lines.push(`**${approvalCount}** recommendations require **Approval** (cost > $250K).`);
 
     const implLines: string[] = [];
-    if (totalImpact > 1_000_000) {
-      implLines.push(`**${formatUSD(totalImpact)}** total exposure across the top 5 interventions requires coordinated supply response at the subcategory level.`);
-    }
-    if (totalCost > 0 && avgBCR > 3) {
-      implLines.push(`Average benefit-cost ratio of **${avgBCR.toFixed(1)}x** indicates strong ROI \u2014 intervention cost of **${formatUSD(totalCost)}** is well justified by **${formatUSD(totalImpact)}** in protected revenue.`);
-    }
-    if (approvalCount > 0) {
-      implLines.push(`**${approvalCount}** high-cost interventions exceed the $250K authority threshold and require escalation before execution.`);
+    if (isCommunication) {
+      if (totalImpact > 1_000_000) {
+        implLines.push(`**${formatUSD(totalImpact)}** total exposure across the top 5 recommendations demands cross-functional leadership alignment and resource commitment.`);
+      }
+      if (approvalCount > 0) {
+        implLines.push(`**${approvalCount}** recommendations exceed the $250K authority threshold \u2014 leadership approval is required before execution can proceed.`);
+      }
+      if (directCount > 0) {
+        implLines.push(`**${directCount}** recommendations are within the Supply Planner authority limit and can proceed through the Direct Action path.`);
+      }
+    } else {
+      if (totalImpact > 1_000_000) {
+        implLines.push(`**${formatUSD(totalImpact)}** total exposure across the top 5 interventions requires coordinated supply response at the subcategory level.`);
+      }
+      if (totalCost > 0 && avgBCR > 3) {
+        implLines.push(`Average benefit-cost ratio of **${avgBCR.toFixed(1)}x** indicates strong ROI \u2014 intervention cost of **${formatUSD(totalCost)}** is well justified by **${formatUSD(totalImpact)}** in protected revenue.`);
+      }
+      if (approvalCount > 0) {
+        implLines.push(`**${approvalCount}** high-cost interventions exceed the $250K authority threshold and require escalation before execution.`);
+      }
     }
     if (!implLines.length) implLines.push("Recommendation portfolio is within standard operating parameters.");
 
     const actLines: string[] = [];
-    if (directCount) actLines.push(`Execute **${directCount}** Direct Action recommendations immediately \u2014 these are within the Supply Planner authority limit.`);
-    if (approvalCount) actLines.push(`Submit **${approvalCount}** Approval Required recommendations for management sign-off before proceeding.`);
-    actLines.push("Execute interventions in the displayed priority order (highest impact first).");
-    actLines.push("Escalate cross-category capacity conflicts to the Director for S&OP resolution.");
+    if (isCommunication) {
+      if (approvalCount) actLines.push(`Review and approve **${approvalCount}** recommendations that exceed the $250K threshold.`);
+      if (directCount) actLines.push(`Confirm that **${directCount}** Direct Action recommendations are proceeding as planned.`);
+      actLines.push("Communicate priority actions and expected outcomes to stakeholders at the next S&OP review.");
+      actLines.push("Monitor execution progress and escalate any cross-department capacity conflicts.");
+    } else {
+      if (directCount) actLines.push(`Execute **${directCount}** Direct Action recommendations immediately \u2014 these are within the Supply Planner authority limit.`);
+      if (approvalCount) actLines.push(`Submit **${approvalCount}** Approval Required recommendations for management sign-off before proceeding.`);
+      actLines.push("Execute interventions in the displayed priority order (highest impact first).");
+      actLines.push("Escalate cross-category capacity conflicts to the Director for S&OP resolution.");
+    }
 
     return lines.join(" ") + ` |IMPLICATIONS| ${implLines.join(" ")} |ACTIONS| ${actLines.join(" ")}`;
-  }, [top5]);
+  }, [top5, isCommunication]);
 
   if (!data.length) return <div className="text-sm opacity-60 p-4">No recommendation data available.</div>;
 

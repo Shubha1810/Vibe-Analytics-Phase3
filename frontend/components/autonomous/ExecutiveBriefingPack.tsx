@@ -1,15 +1,17 @@
 "use client";
 
 import React from "react";
-import type { EnterpriseSummary, ReportSection, RecommendedAction } from "@/lib/orchestration-types";
+import type { EnterpriseSummary, ReportSection, RecommendedAction, RecommendationCard } from "@/lib/orchestration-types";
 import { HowToReadIt } from "./HowToReadIt";
 import { ChartExplainer } from "./ChartExplainer";
+import { RecommendationCards } from "./RecommendationCards";
 
 interface ExecutiveBriefingPackProps {
   summary: EnterpriseSummary | null | undefined;
   sections: ReportSection[];
   contentions: unknown[];
   pendingApprovals: unknown[];
+  recommendations: RecommendationCard[];
   narrative?: string | null;
 }
 
@@ -34,7 +36,7 @@ function statusBadge(actions: RecommendedAction[]): { label: string; color: stri
   return { label: "No Actions", color: "#94a3b8", bg: "rgba(148,163,184,0.12)" };
 }
 
-export function ExecutiveBriefingPack({ summary, sections, contentions, pendingApprovals, narrative }: ExecutiveBriefingPackProps) {
+export function ExecutiveBriefingPack({ summary, sections, contentions, pendingApprovals, recommendations, narrative }: ExecutiveBriefingPackProps) {
   if (!summary && (!sections || sections.length === 0)) {
     return <div className="text-sm opacity-60 p-4">No executive briefing data available.</div>;
   }
@@ -117,44 +119,23 @@ export function ExecutiveBriefingPack({ summary, sections, contentions, pendingA
         <HowToReadIt bullets={howToReadBullets} />
       </div>
 
-      {/* Cross-Department Contentions */}
-      {contentions.length > 0 && (
+      {/* Priority Recommendations for Leadership Review */}
+      {recommendations.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: "var(--hex-text, #e2e8f0)" }}>
-            <span className="material-icons-outlined text-amber-500" style={{ fontSize: "18px" }}>gavel</span>
-            Cross-Department Contentions
+          <h4 className="text-sm font-semibold mb-2 flex items-center gap-2" style={{ color: "var(--hex-text, #e2e8f0)" }}>
+            <span className="material-icons-outlined text-purple-500" style={{ fontSize: "18px" }}>assignment</span>
+            Priority Recommendations for Leadership Review
           </h4>
-          <div className="space-y-2">
-            {contentions.map((c, i) => (
-              <div key={i} className="rounded-xl border border-amber-200 p-4 text-sm" style={{ color: "var(--hex-text, #e2e8f0)", background: "rgba(245,158,11,0.05)" }}>
-                {typeof c === "string" ? c : (
-                  <div className="space-y-2">
-                    {(c as any).competing_departments && (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold uppercase" style={{ color: "#F59E0B" }}>Departments:</span>
-                        {((c as any).competing_departments as string[]).map((d: string, di: number) => (
-                          <span key={di} className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(245,158,11,0.15)", color: "#B45309" }}>{d}</span>
-                        ))}
-                      </div>
-                    )}
-                    {(c as any).resource && (
-                      <p className="text-xs"><strong style={{ color: "var(--hex-text, #1e293b)" }}>Resource:</strong> {(c as any).resource}</p>
-                    )}
-                    {(c as any).recommendation && (
-                      <p className="text-sm leading-relaxed" style={{ color: "var(--hex-text, #1e293b)" }}>{(c as any).recommendation}</p>
-                    )}
-                    {(c as any).urgency && (
-                      <p className="text-xs mt-1"><span className="font-semibold" style={{ color: "#DC2626" }}>Urgency:</span> {(c as any).urgency}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <p className="text-xs mb-4" style={{ color: "var(--hex-text-secondary, #94a3b8)" }}>
+            The following recommendations represent the five highest-impact actions requiring leadership visibility.
+            Each recommendation is presented at the actionable L3 subcategory and Region level, including its expected
+            impact, implementation cost, confidence, and approval status.
+          </p>
+          <RecommendationCards data={recommendations} mode="communication" />
         </div>
       )}
 
-      {narrative && (
+      {narrative && recommendations.length === 0 && (
         <ChartExplainer narrative={narrative} />
       )}
     </div>

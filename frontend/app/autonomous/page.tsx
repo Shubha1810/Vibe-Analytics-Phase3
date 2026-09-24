@@ -982,6 +982,7 @@ export default function AutonomousPage() {
                 sections={sections}
                 contentions={summary?.cross_department_contentions || []}
                 pendingApprovals={execReport?.pending_approvals || []}
+                recommendations={analytics?.recommendations ?? []}
                 narrative={vizNarr.executive || narrative}
               />
             </div>
