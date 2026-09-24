@@ -3,7 +3,7 @@ services:
     build: ./backend
     ports:
       - "${BACKEND_PORT}:5000"
-      - "8888:8888"
+      - "${SF_AUTH_SOCKET_PORT:-8889}:8888"
     env_file:
       - .env
     restart: unless-stopped

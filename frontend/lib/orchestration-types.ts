@@ -215,6 +215,7 @@ export interface StockoutRow {
 
 export interface RecommendationCard {
   category_l2: string;
+  category_l3: string;
   region: string;
   severity: string;
   primary_driver: string;
@@ -223,6 +224,7 @@ export interface RecommendationCard {
   cost_usd: number;
   benefit_cost_ratio: number;
   recoverable_usd: number;
+  total_value_at_risk: number;
   confidence: number;
   days_to_impact: number;
   risk_count: number;

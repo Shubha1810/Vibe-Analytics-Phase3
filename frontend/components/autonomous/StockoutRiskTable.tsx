@@ -32,11 +32,13 @@ const dropdownStyle: React.CSSProperties = {
 };
 
 const howToReadBullets = [
-  "Each row is a distinct risk record at its original source granularity.",
+  "Each row represents the highest-risk record for a distinct Subcategory + Region combination.",
   "Stockout Rate = percentage of SKUs currently stocked out in this category/region.",
   "Risk Level reflects the business-defined severity from the source system.",
-  "Value at Risk = dollar exposure if no action is taken.",
-  "Rows are sorted by Stockout Rate (highest first), then Risk Level.",
+  "Units at Risk = projected units affected if no action is taken.",
+  "Revenue at Risk = dollar exposure if no action is taken.",
+  "Days to Impact = how soon this risk affects revenue or availability.",
+  "Rows are sorted by Units at Risk (highest first), then Revenue at Risk.",
 ];
 
 function formatUSD(val: number) {
@@ -47,15 +49,17 @@ function formatUSD(val: number) {
 
 function sortRows(rows: StockoutRow[]): StockoutRow[] {
   return [...rows].sort((a, b) => {
-    // 1. Stockout rate DESC
+    // 1. Units at risk DESC
+    if (b.units_at_risk !== a.units_at_risk) return b.units_at_risk - a.units_at_risk;
+    // 2. Revenue at risk DESC
+    if (b.value_at_risk !== a.value_at_risk) return b.value_at_risk - a.value_at_risk;
+    // 3. Stockout rate DESC
     if (b.stockout_rate !== a.stockout_rate) return b.stockout_rate - a.stockout_rate;
-    // 2. Severity rank ASC (CRITICAL first)
+    // 4. Severity rank ASC (CRITICAL first)
     const sevA = SEVERITY_RANK[a.severity] ?? 4;
     const sevB = SEVERITY_RANK[b.severity] ?? 4;
     if (sevA !== sevB) return sevA - sevB;
-    // 3. Value at risk DESC
-    if (b.value_at_risk !== a.value_at_risk) return b.value_at_risk - a.value_at_risk;
-    // 4. Deterministic tiebreaker
+    // 5. Deterministic tiebreaker
     return a.risk_id.localeCompare(b.risk_id);
   });
 }
@@ -64,14 +68,17 @@ export function StockoutRiskTable({ data, narrative, vizNumber }: StockoutRiskTa
   const [selectedL2, setSelectedL2] = useState<string | null>(null);
   const [selectedL3, setSelectedL3] = useState<string | null>(null);
 
-  // Deduplicate by risk_id (safety net — SQL already dedupes)
+  // Deduplicate by L3+Region: keep highest units_at_risk per combo
   const deduped = useMemo(() => {
-    const seen = new Set<string>();
-    return data.filter((r) => {
-      if (seen.has(r.risk_id)) return false;
-      seen.add(r.risk_id);
-      return true;
-    });
+    const map = new Map<string, StockoutRow>();
+    for (const r of data) {
+      const key = `${r.category_l2}||${r.category}||${r.region}`;
+      const existing = map.get(key);
+      if (!existing || r.units_at_risk > existing.units_at_risk) {
+        map.set(key, r);
+      }
+    }
+    return [...map.values()];
   }, [data]);
 
   // L2 categories from data
@@ -117,7 +124,7 @@ export function StockoutRiskTable({ data, narrative, vizNumber }: StockoutRiskTa
     const lines: string[] = [];
     lines.push(`**${displayRows.length}** stockout risk records displayed for ${scope} across **${regions.length}** region${regions.length !== 1 ? "s" : ""} (${regions.join(", ")}).`);
     if (maxStockout) {
-      lines.push(`Highest stockout rate: **${maxStockout.stockout_rate.toFixed(1)}%** in **${maxStockout.category}** (${maxStockout.region}).`);
+      lines.push(`Highest units at risk: **${maxStockout.units_at_risk.toLocaleString()}** in **${maxStockout.category}** (${maxStockout.region}) with stockout rate **${maxStockout.stockout_rate.toFixed(1)}%**.`);
     }
     lines.push(`Total value at risk: **${formatUSD(totalVAR)}**. Units at risk: **${totalUnits.toLocaleString()}**.`);
     if (critical) lines.push(`**${critical}** CRITICAL-severity records.`);

@@ -195,8 +195,8 @@ async function fetchStockout(dept: string | null): Promise<StockoutRow[]> {
   FROM ${SCHEMA}.FACT_DEMAND_RISK r
   JOIN ${SCHEMA}.DIM_PRODUCT p ON r.CATEGORY_L3 = p.CATEGORY_L3
   WHERE r.IS_CURRENT_WEEK = TRUE${deptWhere(dept, "r")}
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY r.RISK_ID ORDER BY r.VALUE_AT_RISK_USD DESC) = 1
-  ORDER BY r.STOCKOUT_RATE_PCT DESC NULLS LAST`;
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY p.CATEGORY_L2, r.CATEGORY_L3, r.REGION ORDER BY r.UNITS_AT_RISK DESC) = 1
+  ORDER BY r.UNITS_AT_RISK DESC NULLS LAST`;
   const rows = parseRows(await executeStatement(sql));
   return rows.map((r) => ({
     risk_id: str(r.RISK_ID),
@@ -217,13 +217,14 @@ async function fetchRecommendations(dept: string | null): Promise<Recommendation
   const deptFilter = dept
     ? ` AND r.DEPARTMENT IN (${dept.split(",").map((d) => `'${d.trim().replace(/'/g, "''")}'`).join(",")})`
     : "";
-  const sql = `SELECT p.CATEGORY_L2, r.REGION,
+  const sql = `SELECT r.CATEGORY_L3, p.CATEGORY_L2, r.REGION,
     MAX(r.RISK_SEVERITY) as SEVERITY, MAX(r.PRIMARY_DRIVER) as PRIMARY_DRIVER,
     MAX(r.RECOMMENDED_POSTURE) as POSTURE,
     SUM(r.VALUE_AT_RISK_USD) as IMPACT_USD,
     SUM(c.INTERVENTION_COST_USD) as COST_USD,
     AVG(c.BENEFIT_COST_RATIO) as BCR,
     SUM(c.RECOVERABLE_VALUE_USD) as RECOVERABLE_USD,
+    SUM(c.TOTAL_VALUE_AT_RISK_USD) as TOTAL_VAR,
     AVG(r.DETECTION_CONFIDENCE) as CONFIDENCE,
     MIN(r.DAYS_TO_IMPACT) as DAYS_TO_IMPACT,
     COUNT(DISTINCT r.RISK_ID) as RISK_COUNT
@@ -232,11 +233,12 @@ async function fetchRecommendations(dept: string | null): Promise<Recommendation
   JOIN ${SCHEMA}.DIM_PRODUCT p ON r.CATEGORY_L3 = p.CATEGORY_L3
   WHERE r.IS_CURRENT_WEEK = TRUE AND c.DAYS_FROM_NOW = 0
     AND r.RISK_SEVERITY IN ('CRITICAL','HIGH','MEDIUM')${deptFilter}
-  GROUP BY p.CATEGORY_L2, r.REGION
+  GROUP BY r.CATEGORY_L3, p.CATEGORY_L2, r.REGION
   ORDER BY IMPACT_USD DESC`;
   const rows = parseRows(await executeStatement(sql));
   return rows.map((r) => ({
     category_l2: str(r.CATEGORY_L2),
+    category_l3: str(r.CATEGORY_L3),
     region: str(r.REGION),
     severity: str(r.SEVERITY),
     primary_driver: str(r.PRIMARY_DRIVER),
@@ -245,6 +247,7 @@ async function fetchRecommendations(dept: string | null): Promise<Recommendation
     cost_usd: num(r.COST_USD),
     benefit_cost_ratio: num(r.BCR),
     recoverable_usd: num(r.RECOVERABLE_USD),
+    total_value_at_risk: num(r.TOTAL_VAR),
     confidence: num(r.CONFIDENCE),
     days_to_impact: num(r.DAYS_TO_IMPACT),
     risk_count: num(r.RISK_COUNT),
