@@ -44,15 +44,14 @@ const DRIVER_COLORS: Record<string, string> = {
   Residual: "#94A3B8",
 };
 
-const dropdownStyle: React.CSSProperties = {
-  background: "var(--hex-surface-2, #0f172a)",
-  color: "var(--hex-text, #e2e8f0)",
-  border: "1px solid var(--hex-border, #334155)",
-  borderRadius: "8px",
-  padding: "6px 12px",
-  fontSize: "13px",
+const pillBase: React.CSSProperties = {
+  padding: "4px 12px",
+  borderRadius: "9999px",
+  fontSize: "12px",
+  fontWeight: 500,
   cursor: "pointer",
-  minWidth: "180px",
+  transition: "all 0.15s",
+  border: "1px solid var(--hex-border, #334155)",
 };
 
 const HOW_TO_READ = [
@@ -122,8 +121,24 @@ export function DriverAttribution({ data, narrative, vizNumber }: DriverAttribut
     const presentDrivers = new Set(chartData.map((d) => d.driver_name));
     const orderedDrivers = DRIVER_ORDER.filter((d) => presentDrivers.has(d));
 
+    // Normalize: compute each driver's share of total |contribution| per category
+    const catAbsTotals = new Map<string, number>();
+    for (const cat of allCats) {
+      const absSum = chartData
+        .filter((d) => d.category === cat)
+        .reduce((s, d) => s + Math.abs(d.contribution_pp), 0);
+      catAbsTotals.set(cat, absSum || 1);
+    }
+
     const traceList = orderedDrivers.map((driver) => {
       const vals = allCats.map((cat) => {
+        const row = chartData.find((d) => d.category === cat && d.driver_name === driver);
+        if (!row) return 0;
+        const absTotal = catAbsTotals.get(cat) || 1;
+        const totalDev = Math.abs(row.total_deviation_pp) || absTotal;
+        return (row.contribution_pp / absTotal) * totalDev;
+      });
+      const rawVals = allCats.map((cat) => {
         const row = chartData.find((d) => d.category === cat && d.driver_name === driver);
         return row ? row.contribution_pp : 0;
       });
@@ -134,7 +149,8 @@ export function DriverAttribution({ data, narrative, vizNumber }: DriverAttribut
         y: allCats,
         x: vals,
         marker: { color: DRIVER_COLORS[driver] || "#64748b" },
-        hovertemplate: `${driver}: %{x:.1f}pp<extra></extra>`,
+        customdata: rawVals,
+        hovertemplate: `${driver}: %{customdata:.1f}pp (raw)<br>Scaled: %{x:.1f}pp<extra></extra>`,
       };
     });
 
@@ -228,21 +244,34 @@ export function DriverAttribution({ data, narrative, vizNumber }: DriverAttribut
         Root Cause Driver Attribution
       </h3>
 
-      {/* Department filter dropdown */}
-      <div className="flex items-center gap-4 mb-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium" style={{ color: "var(--hex-text-secondary, #94a3b8)" }}>Department:</span>
-          <select
-            value={selectedDept ?? ""}
-            onChange={(e) => setSelectedDept(e.target.value || null)}
-            style={dropdownStyle}
+      {/* Department filter pills */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span className="text-xs font-medium" style={{ color: "var(--hex-text-secondary, #94a3b8)" }}>Department:</span>
+        <button
+          onClick={() => setSelectedDept(null)}
+          style={{
+            ...pillBase,
+            background: selectedDept === null ? "var(--hex-primary, #7c3aed)" : "var(--hex-surface-2, #0f172a)",
+            color: selectedDept === null ? "#fff" : "var(--hex-text-secondary, #94a3b8)",
+            borderColor: selectedDept === null ? "var(--hex-primary, #7c3aed)" : "var(--hex-border, #334155)",
+          }}
+        >
+          All
+        </button>
+        {departments.map((dept) => (
+          <button
+            key={dept}
+            onClick={() => setSelectedDept(dept)}
+            style={{
+              ...pillBase,
+              background: selectedDept === dept ? "var(--hex-primary, #7c3aed)" : "var(--hex-surface-2, #0f172a)",
+              color: selectedDept === dept ? "#fff" : "var(--hex-text-secondary, #94a3b8)",
+              borderColor: selectedDept === dept ? "var(--hex-primary, #7c3aed)" : "var(--hex-border, #334155)",
+            }}
           >
-            <option value="">All</option>
-            {departments.map((dept) => (
-              <option key={dept} value={dept}>{dept}</option>
-            ))}
-          </select>
-        </div>
+            {dept}
+          </button>
+        ))}
       </div>
 
       <div className="flex gap-4 max-lg:flex-col">

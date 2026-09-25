@@ -222,6 +222,7 @@ export function DeviationHeatmap({ data, narrative, vizNumber }: DeviationHeatma
       {/* Scope indicator */}
       <p className="text-[11px] mb-2" style={{ color: "var(--hex-text-dim, #94a3b8)" }}>
         {isDrillDown ? `Showing Category L2 breakdown for: ${selectedL1}` : "Showing Department (L1) level. Select a department to drill into sub-categories."}
+        {" "}Dev % represents weighted demand deviation across SKUs and may exceed 100%.
       </p>
 
       <div className="flex gap-4 max-lg:flex-col">

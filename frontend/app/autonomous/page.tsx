@@ -900,12 +900,12 @@ export default function AutonomousPage() {
         {/* Enterprise Summary KPI Banner */}
         {kpis && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-            <KPICard label="Total Anomalies" value={kpis.total_anomalies} icon="warning" subtitle="SKUs deviating >10% from forecast" />
-            <KPICard label="High Impact" value={kpis.high_impact} icon="priority_high" color="#EF4444" subtitle="Revenue at risk exceeds $10K" />
-            <KPICard label="Departments" value={kpis.departments_affected} icon="business" subtitle="Departments with active anomalies" />
-            <KPICard label="Revenue at Stake" value={formatUsd(kpis.revenue_at_stake)} icon="trending_down" color="#EF4444" subtitle="Total revenue exposed to demand deviations" />
-            <KPICard label="Avg Stockout Rate" value={`${(Number(kpis.avg_stockout_rate) * 100).toFixed(1)}%`} icon="inventory" color="#F97316" subtitle="Average out-of-stock percentage across portfolio" />
-            <KPICard label="Units at Risk" value={Number(kpis.total_units_at_risk).toLocaleString()} icon="local_shipping" color="#8B5CF6" subtitle="Total units with potential demand shortfall" />
+                <KPICard label="Total Anomalies" value={kpis.total_anomalies} icon="warning" subtitle="Category-region combinations with demand risk" />
+                <KPICard label="High Impact" value={kpis.high_impact} icon="priority_high" color="#EF4444" subtitle="CRITICAL or HIGH severity risks" />
+                <KPICard label="Departments" value={kpis.departments_affected} icon="business" subtitle="Departments with active anomalies" />
+                <KPICard label="Revenue at Stake" value={formatUsd(kpis.revenue_at_stake)} icon="trending_down" color="#EF4444" subtitle="Deduplicated revenue exposure across portfolio" />
+                <KPICard label="Avg Stockout Rate" value={`${Number(kpis.avg_stockout_rate).toFixed(1)}%`} icon="inventory" color="#F97316" subtitle="Weighted average out-of-stock rate" />
+                <KPICard label="Units at Risk" value={Number(kpis.total_units_at_risk).toLocaleString()} icon="local_shipping" color="#8B5CF6" subtitle="Deduplicated units with demand shortfall" />
           </div>
         )}
 

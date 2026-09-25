@@ -187,6 +187,44 @@ export function RecoveryTimeline({ data, narrative, vizNumber }: RecoveryTimelin
     return { traces: traceList, shapes: shapeList, annotations: annotList };
   }, [chartGroups]);
 
+  // Data-driven insight replacing stale LLM narrative
+  const computedInsight = useMemo(() => {
+    if (!l2Summaries.length) return null;
+    const scope = effectiveL2 ? `**${effectiveL2}**` : selectedRegion ? `**${selectedRegion}**` : "all categories and regions";
+    const totalRecoverable = totals.day0;
+    const totalErosion = totals.erosion;
+    const topCategory = l2Summaries[0];
+    const categoriesWithData = l2Summaries.filter((s) => s.day0 > 0);
+    const totalInterventionCost = l2Summaries.reduce((s, r) => s + (r.bcr > 0 && r.day0 > 0 ? r.day0 / r.bcr : 0), 0);
+
+    const lines: string[] = [];
+    lines.push(`Recovery trajectory for ${scope}: **${fmtUsd(totalRecoverable)}** recoverable at day 0 across **${categoriesWithData.length}** categories.`);
+    if (topCategory && topCategory.day0 > 0) {
+      lines.push(`Highest exposure: **${topCategory.category}** with **${fmtUsd(topCategory.day0)}** recoverable, eroding at **${fmtUsd(topCategory.erosion)}/day**.`);
+    }
+    lines.push(`Expected decay to **${fmtUsd(totals.day14)}** by day 14. Total intervention cost: **${fmtUsd(totalInterventionCost)}**.`);
+
+    const implLines: string[] = [];
+    if (totalRecoverable > 1_000_000) {
+      implLines.push(`**${fmtUsd(totalRecoverable)}** recoverable value requires coordinated supply response \u2014 delay compounds daily erosion.`);
+    }
+    const perishable = l2Summaries.filter((s) => ["Dairy", "Bakery", "Fresh Produce", "Pantry & Beverages"].includes(s.category) && s.day0 > 0);
+    if (perishable.length > 0) {
+      implLines.push(`**${perishable.length}** perishable categories face the shortest action windows (3 days) \u2014 recovery value erodes fastest here.`);
+    }
+    if (totalErosion > 50_000) {
+      implLines.push(`Daily erosion of **${fmtUsd(totalErosion)}** means every day of delay reduces recoverable value significantly.`);
+    }
+    if (!implLines.length) implLines.push("Recovery values are within manageable thresholds \u2014 standard monitoring cadence applies.");
+
+    const actLines: string[] = [];
+    actLines.push("Act on perishable items today \u2014 these have the steepest erosion curves.");
+    actLines.push("For durable goods, you have more time but should stage orders within 48 hours.");
+    actLines.push("Hand off to Supply Planning for sized replenishment actions.");
+
+    return lines.join(" ") + ` |IMPLICATIONS| ${implLines.join(" ")} |ACTIONS| ${actLines.join(" ")}`;
+  }, [l2Summaries, totals, effectiveL2, selectedRegion]);
+
   if (!data.length) return <div className="text-sm opacity-60 p-4">No recovery data available.</div>;
 
   const viewLabel = effectiveL2 ? `L3 products in ${effectiveL2}` : `L2 categories`;
@@ -298,9 +336,12 @@ export function RecoveryTimeline({ data, narrative, vizNumber }: RecoveryTimelin
             </tbody>
           </table>
         </div>
+        <p className="text-[10px] mt-1.5 px-1" style={{ color: "var(--hex-text-dim, #64748b)" }}>
+          $0 values indicate the recovery window has passed or the value is fully eroded at that time horizon.
+        </p>
       </div>
 
-      <ChartExplainer narrative={narrative} />
+      <ChartExplainer narrative={computedInsight || narrative} />
     </div>
   );
 }

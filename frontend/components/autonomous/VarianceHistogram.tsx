@@ -81,14 +81,22 @@ export function VarianceHistogram({ data, narrative, vizNumber }: VarianceHistog
     };
   }, [data]);
 
+  // Cap chart display at 250% deviation to exclude outliers — zone counts use full data
+  const CHART_MAX_DEVIATION = 250;
+  const chartData = useMemo(() => data.filter((d) => d.deviation_bucket <= CHART_MAX_DEVIATION), [data]);
+  const chartColors = useMemo(() => chartData.map((d) => bucketColor(d.deviation_bucket)), [chartData]);
+  const excludedCount = useMemo(() => {
+    return data.filter((d) => d.deviation_bucket > CHART_MAX_DEVIATION).reduce((s, d) => s + d.sku_count, 0);
+  }, [data]);
+
   const computedInsight = useMemo(() => {
     if (!data.length) return null;
     const { totalSkus, mean, stdDev, skew } = stats;
     const { normal, watch, anomaly, normalPct, watchPct, anomalyPct } = zoneCounts;
 
     const lines: string[] = [];
-    lines.push(`Portfolio health scan: **${totalSkus.toLocaleString()}** SKUs analyzed. **${normalPct}%** (${normal.toLocaleString()} SKUs) within normal ±10% variance band.`);
-    lines.push(`**${watch}** SKUs (**${watchPct}%**) in the watch zone (±10-20%), **${anomaly}** SKUs (**${anomalyPct}%**) flagged as true anomalies (≥20% deviation).`);
+    lines.push(`Portfolio health scan: **${totalSkus.toLocaleString()}** category-region combinations analyzed. **${normalPct}%** (${normal.toLocaleString()}) within normal ±10% variance band.`);
+    lines.push(`**${watch}** combinations (**${watchPct}%**) in the watch zone (±10-20%), **${anomaly}** (**${anomalyPct}%**) flagged as true anomalies (≥20% deviation).`);
     lines.push(`Distribution: mean **${mean.toFixed(1)}%**, std dev **${stdDev.toFixed(1)}**, skew **${skew.toFixed(2)}**.`);
     
     if (Number(normalPct) < 50) {
@@ -160,7 +168,7 @@ export function VarianceHistogram({ data, narrative, vizNumber }: VarianceHistog
           {/* Stats strip */}
           <div className="flex flex-wrap gap-3 px-3 pt-3 pb-1">
             {[
-              { label: "Total SKUs", value: stats.totalSkus.toLocaleString() },
+              { label: "Analyzed", value: stats.totalSkus.toLocaleString() },
               { label: "Mean", value: `${stats.mean.toFixed(1)}%` },
               { label: "Median", value: `${stats.median}%` },
               { label: "Std Dev", value: stats.stdDev.toFixed(1) },
@@ -178,10 +186,10 @@ export function VarianceHistogram({ data, narrative, vizNumber }: VarianceHistog
               data={[
                 {
                   type: "bar" as const,
-                  x: data.map((d) => `${d.deviation_bucket}%`),
-                  y: data.map((d) => d.sku_count),
-                  marker: { color: colors },
-                  hovertemplate: "Bucket: %{x}<br>SKUs: %{y}<extra></extra>",
+                  x: chartData.map((d) => `${d.deviation_bucket}%`),
+                  y: chartData.map((d) => d.sku_count),
+                  marker: { color: chartColors },
+                  hovertemplate: "Bucket: %{x}<br>Count: %{y}<extra></extra>",
                 },
               ]}
               layout={{
@@ -200,12 +208,15 @@ export function VarianceHistogram({ data, narrative, vizNumber }: VarianceHistog
               style={{ width: "100%", height: "360px" }}
             />
           </div>
+          {excludedCount > 0 && (
+            <p className="text-[10px] px-3 pb-2" style={{ color: "var(--hex-text-dim, #64748b)" }}>
+              {excludedCount} outlier combination{excludedCount !== 1 ? "s" : ""} (&gt;250% deviation) excluded from chart for readability. Zone counts include all data.
+            </p>
+          )}
         </div>
 
         <HowToReadIt bullets={HOW_TO_READ} />
       </div>
-
-      {/* Bottom summary */}
       <div
         className="mt-3 rounded-lg px-4 py-2.5 text-sm leading-relaxed"
         style={{
@@ -214,8 +225,8 @@ export function VarianceHistogram({ data, narrative, vizNumber }: VarianceHistog
           color: "var(--hex-text, #e2e8f0)",
         }}
       >
-        The portfolio is {Number(zoneCounts.normalPct) >= 70 ? "healthy" : "under stress"} — <strong>{zoneCounts.normalPct}%</strong> of SKUs sit inside the ±10% band. Only <strong>{zoneCounts.anomaly}</strong> SKUs are true anomalies
-        {stats.totalSkus > 0 && <>, representing <strong>{zoneCounts.anomalyPct}%</strong> of SKUs at stake</>}.
+            The portfolio is {Number(zoneCounts.normalPct) >= 70 ? "healthy" : "under stress"} — <strong>{zoneCounts.normalPct}%</strong> of category-region combinations sit inside the ±10% band. Only <strong>{zoneCounts.anomaly}</strong> are true anomalies
+            {stats.totalSkus > 0 && <>, representing <strong>{zoneCounts.anomalyPct}%</strong> of combinations at stake</>}.
       </div>
 
       <ChartExplainer narrative={computedInsight || narrative} />
